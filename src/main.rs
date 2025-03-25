@@ -10,6 +10,39 @@ use winreg::enums::*;
 
 use regex::Regex;
 
+fn get_my_ip_address() -> Option<String> {
+    use std::net::UdpSocket;
+
+    // Trick: connect to a public IP to get the local IP (does not send packets)
+    let socket = UdpSocket::bind("0.0.0.0:0").ok()?;
+    socket.connect("8.8.8.8:80").ok()?;
+    let local_addr = socket.local_addr().ok()?;
+    Some(local_addr.ip().to_string())
+}
+
+fn is_in_net(ip: &str, pattern: &str, mask: &str) -> bool {
+    use std::net::Ipv4Addr;
+
+    let ip = ip.parse::<Ipv4Addr>().ok();
+    let pattern = pattern.parse::<Ipv4Addr>().ok();
+    let mask = mask.parse::<Ipv4Addr>().ok();
+
+    match (ip, pattern, mask) {
+        (Some(ip), Some(pat), Some(mask)) => {
+            let ip_u32 = u32::from(ip);
+            let pat_u32 = u32::from(pat);
+            let mask_u32 = u32::from(mask);
+
+            (ip_u32 & mask_u32) == (pat_u32 & mask_u32)
+        }
+        _ => false,
+    }
+}
+
+fn dns_domain_is(host: &str, domain: &str) -> bool {
+    host.ends_with(domain)
+}
+
 // DNS resolver using Windows API (supports IPv4 and IPv6)
 fn resolve_dns(host: &str) -> Option<String> {
     let addr_iter = (host, 0).to_socket_addrs().ok()?;
@@ -17,6 +50,10 @@ fn resolve_dns(host: &str) -> Option<String> {
         return Some(addr.ip().to_string());
     }
     None
+}
+
+fn is_plain_host_name(host: &str) -> bool {
+    !host.contains('.')
 }
 
 // Get the system PAC file URL or file path
@@ -66,7 +103,7 @@ fn create_pac_context(pac_script: &str) -> Context {
         global
             .set(
                 "dnsDomainIs",
-                Func::from(|host: String, domain: String| host.ends_with(&domain)),
+                Func::from(|host: String, domain: String| dns_domain_is(&host, &domain)),
             )
             .unwrap();
 
@@ -77,6 +114,29 @@ fn create_pac_context(pac_script: &str) -> Context {
                     let regex = glob_to_regex(&pattern);
                     regex.is_match(&input)
                 }),
+            )
+            .unwrap();
+
+        global
+            .set(
+                "myIpAddress",
+                Func::from(|| get_my_ip_address().unwrap_or_else(|| "127.0.0.1".to_string())),
+            )
+            .unwrap();
+
+        global
+            .set(
+                "isInNet",
+                Func::from(|ip: String, pattern: String, mask: String| {
+                    is_in_net(&ip, &pattern, &mask)
+                }),
+            )
+            .unwrap();
+
+        global
+            .set(
+                "isPlainHostName",
+                Func::from(|host: String| is_plain_host_name(&host)),
             )
             .unwrap();
 

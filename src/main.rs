@@ -212,7 +212,7 @@ fn main() {
     let ctx = create_pac_context(&pac_script);
 
     // Example URL to test proxy resolution
-    let test_url = "http://example.com";
+    let test_url = "http://github.com";
     let parsed = Url::parse(test_url).unwrap();
     let host = parsed.host_str().unwrap_or("");
 

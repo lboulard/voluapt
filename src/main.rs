@@ -18,6 +18,7 @@ fn get_my_ip_address() -> Option<String> {
     let socket = UdpSocket::bind("0.0.0.0:0").ok()?;
     socket.connect("8.8.8.8:80").ok()?;
     let local_addr = socket.local_addr().ok()?;
+    println!(" MyIP: {}", local_addr.ip());
     Some(local_addr.ip().to_string())
 }
 
@@ -41,19 +42,28 @@ fn is_in_net(ip: &str, pattern: &str, mask: &str) -> bool {
 }
 
 fn dns_domain_is(host: &str, domain: &str) -> bool {
+    println!(
+        "dnDomainIs: {} {} ({})",
+        host,
+        domain,
+        host.ends_with(domain)
+    );
     host.ends_with(domain)
 }
 
 // DNS resolver using Windows API (supports IPv4 and IPv6)
 fn resolve_dns(host: &str) -> Option<String> {
+    println!("DNS resolve for {}", host);
     let addr_iter = (host, 0).to_socket_addrs().ok()?;
     for addr in addr_iter {
+        println!(" IP: {}", addr.ip());
         return Some(addr.ip().to_string());
     }
     None
 }
 
 fn is_plain_host_name(host: &str) -> bool {
+    println!("isPlainHostName: {} ({})", host, !host.contains('.'));
     !host.contains('.')
 }
 
@@ -135,6 +145,7 @@ fn create_pac_context(pac_script: &str) -> Context {
                 "shExpMatch",
                 Func::from(|input: String, pattern: String| {
                     let regex = glob_to_regex(&pattern);
+                    println!("Regex {} on {}", regex, input);
                     regex.is_match(&input)
                 }),
             )
@@ -170,6 +181,7 @@ fn create_pac_context(pac_script: &str) -> Context {
 }
 
 fn glob_to_regex(glob: &str) -> Regex {
+    println!("Glob {}", glob);
     let mut pattern = String::from("^");
     for c in glob.chars() {
         match c {

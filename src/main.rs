@@ -1,3 +1,4 @@
+use std::io::ErrorKind;
 use std::{fs, net::ToSocketAddrs};
 use url::Url;
 
@@ -72,11 +73,33 @@ fn get_pac_url() -> Option<String> {
 }
 
 // Download or read PAC file
+// Handle crappy server response like zscloud that break connection
 fn load_pac_script(pac_url: &str) -> Option<String> {
     if pac_url.starts_with("http") {
         let agent = Agent::new();
-        let resp = agent.get(pac_url).call().ok()?;
-        Some(resp.into_string().ok()?)
+        let resp = agent.get(pac_url).call();
+        match resp {
+            Err(error) => {
+                println!("HTTP error: URL {}: {:?}", pac_url, error);
+                Err(error).ok()?
+            }
+            Ok(response) => {
+                // capture response to be able to respond for UnexpectedEof case
+                let mut buf = String::new();
+                match response.into_reader().read_to_string(&mut buf) {
+                    Ok(_) => Some(buf),
+                    Err(io_error) => {
+                        if io_error.kind() == ErrorKind::UnexpectedEof {
+                            // println!("Unexpected EOF: URL {}: {:?}", pac_url, io_error);
+                            Some(buf)
+                        } else {
+                            println!("IO Error: URL {}: {:?}", pac_url, io_error);
+                            Err(io_error).ok()?
+                        }
+                    }
+                }
+            }
+        }
     } else if pac_url.starts_with("file://") {
         let path = pac_url.trim_start_matches("file://");
         fs::read_to_string(path).ok()

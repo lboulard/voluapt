@@ -9,15 +9,20 @@ use ureq::Agent;
 use winreg::RegKey;
 use winreg::enums::*;
 
-fn get_my_ip_address() -> Option<String> {
-    use std::net::UdpSocket;
+use std::io;
+use std::net::UdpSocket;
 
+fn get_my_ip_address() -> Result<String, io::Error> {
     // Trick: connect to a public IP to get the local IP (does not send packets)
-    let socket = UdpSocket::bind("0.0.0.0:0").ok()?;
-    socket.connect("8.8.8.8:80").ok()?;
-    let local_addr = socket.local_addr().ok()?;
-    println!(" MyIP: {}", local_addr.ip());
-    Some(local_addr.ip().to_string())
+    let socket = UdpSocket::bind("0.0.0.0:0")?;
+
+    // Connect to a known remote address (no data is actually sent)
+    socket.connect("8.8.8.8:80")?;
+
+    // Step 3: Get the local socket address
+    let local_addr = socket.local_addr()?;
+
+    Ok(local_addr.ip().to_string())
 }
 
 fn is_in_net(ip: &str, pattern: &str, mask: &str) -> bool {
@@ -40,28 +45,19 @@ fn is_in_net(ip: &str, pattern: &str, mask: &str) -> bool {
 }
 
 fn dns_domain_is(host: &str, domain: &str) -> bool {
-    println!(
-        "dnDomainIs: {} {} ({})",
-        host,
-        domain,
-        host.ends_with(domain)
-    );
     host.ends_with(domain)
 }
 
 // DNS resolver using Windows API (supports IPv4 and IPv6)
-fn resolve_dns(host: &str) -> Option<String> {
-    println!("DNS resolve for {}", host);
-    let addr_iter = (host, 0).to_socket_addrs().ok()?;
+fn resolve_dns(host: &str) -> Result<Option<String>, io::Error> {
+    let addr_iter = (host, 0).to_socket_addrs()?;
     for addr in addr_iter {
-        println!(" IP: {}", addr.ip());
-        return Some(addr.ip().to_string());
+        return Ok(Some(addr.ip().to_string()));
     }
-    None
+    Ok(None)
 }
 
 fn is_plain_host_name(host: &str) -> bool {
-    println!("isPlainHostName: {} ({})", host, !host.contains('.'));
     !host.contains('.')
 }
 
@@ -160,14 +156,31 @@ fn create_pac_context(pac_script: &str) -> Context {
         global
             .set(
                 "dnsResolve",
-                Func::from(|host: String| resolve_dns(&host).unwrap_or_default()),
+                Func::from(|host: String| match resolve_dns(&host) {
+                    Ok(Some(response)) => {
+                        println!("dnsResolve: {} ({})", host, response);
+                        response
+                    }
+                    Ok(None) => {
+                        println!("dnsResolve: {} (no response)", host);
+                        "".to_string()
+                    }
+                    Err(e) => {
+                        println!("dnsResolve: {} (error: {})", host, e);
+                        "".to_string()
+                    }
+                }),
             )
             .unwrap();
 
         global
             .set(
                 "dnsDomainIs",
-                Func::from(|host: String, domain: String| dns_domain_is(&host, &domain)),
+                Func::from(|host: String, domain: String| {
+                    let accepted = dns_domain_is(&host, &domain);
+                    println!("dnDomainIs: {} {} ({})", host, domain, accepted,);
+                    accepted
+                }),
             )
             .unwrap();
 
@@ -185,7 +198,16 @@ fn create_pac_context(pac_script: &str) -> Context {
         global
             .set(
                 "myIpAddress",
-                Func::from(|| get_my_ip_address().unwrap_or_else(|| "127.0.0.1".to_string())),
+                Func::from(|| match get_my_ip_address() {
+                    Ok(ip) => {
+                        println!("myIpAddress: {}", ip);
+                        ip
+                    }
+                    Err(e) => {
+                        println!("myIpAddress: [failed] {}", e);
+                        "127.0.0.1".to_string()
+                    }
+                }),
             )
             .unwrap();
 
@@ -193,7 +215,9 @@ fn create_pac_context(pac_script: &str) -> Context {
             .set(
                 "isInNet",
                 Func::from(|ip: String, pattern: String, mask: String| {
-                    is_in_net(&ip, &pattern, &mask)
+                    let accepted = is_in_net(&ip, &pattern, &mask);
+                    println!("isInNet: {} | {}/{} ({})", ip, pattern, mask, accepted);
+                    accepted
                 }),
             )
             .unwrap();
@@ -201,7 +225,11 @@ fn create_pac_context(pac_script: &str) -> Context {
         global
             .set(
                 "isPlainHostName",
-                Func::from(|host: String| is_plain_host_name(&host)),
+                Func::from(|host: String| {
+                    let accepted = is_plain_host_name(&host);
+                    println!("isPlainHostName: {} ({})", host, accepted);
+                    accepted
+                }),
             )
             .unwrap();
 

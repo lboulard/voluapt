@@ -261,5 +261,5 @@ fn main() {
     let host = parsed.host_str().unwrap_or("");
 
     let proxy = find_proxy(&ctx, test_url, host).unwrap_or("DIRECT".to_string());
-    println!("Proxy for {}: {}", test_url, proxy);
+    println!("\nProxy for {}: {}", test_url, proxy);
 }

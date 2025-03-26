@@ -9,8 +9,6 @@ use ureq::Agent;
 use winreg::RegKey;
 use winreg::enums::*;
 
-use regex::Regex;
-
 fn get_my_ip_address() -> Option<String> {
     use std::net::UdpSocket;
 
@@ -65,6 +63,39 @@ fn resolve_dns(host: &str) -> Option<String> {
 fn is_plain_host_name(host: &str) -> bool {
     println!("isPlainHostName: {} ({})", host, !host.contains('.'));
     !host.contains('.')
+}
+
+fn fnmatch(pattern: &str, text: &str) -> bool {
+    fn helper(pat: &[u8], txt: &[u8]) -> bool {
+        if pat.is_empty() {
+            return txt.is_empty();
+        }
+
+        match pat[0] {
+            b'?' => {
+                // ? matches any single character
+                if txt.is_empty() {
+                    false
+                } else {
+                    helper(&pat[1..], &txt[1..])
+                }
+            }
+            b'*' => {
+                // * matches zero or more characters
+                helper(&pat[1..], txt) || (!txt.is_empty() && helper(pat, &txt[1..]))
+            }
+            _ => {
+                // exact character match
+                if txt.is_empty() || pat[0] != txt[0] {
+                    false
+                } else {
+                    helper(&pat[1..], &txt[1..])
+                }
+            }
+        }
+    }
+
+    helper(pattern.as_bytes(), text.as_bytes())
 }
 
 // Get the system PAC file URL or file path
@@ -144,9 +175,9 @@ fn create_pac_context(pac_script: &str) -> Context {
             .set(
                 "shExpMatch",
                 Func::from(|input: String, pattern: String| {
-                    let regex = glob_to_regex(&pattern);
-                    println!("Regex {} on {}", regex, input);
-                    regex.is_match(&input)
+                    let accepted = fnmatch(&pattern, &input);
+                    println!("shExpMath: {} | {} ({})", input, pattern, accepted);
+                    accepted
                 }),
             )
             .unwrap();
@@ -178,21 +209,6 @@ fn create_pac_context(pac_script: &str) -> Context {
     });
 
     ctx
-}
-
-fn glob_to_regex(glob: &str) -> Regex {
-    println!("Glob {}", glob);
-    let mut pattern = String::from("^");
-    for c in glob.chars() {
-        match c {
-            '*' => pattern.push_str(".*"),
-            '?' => pattern.push('.'),
-            '.' => pattern.push_str("\\."),
-            _ => pattern.push(c),
-        }
-    }
-    pattern.push('$');
-    Regex::new(&pattern).unwrap()
 }
 
 fn find_proxy(ctx: &Context, url: &str, host: &str) -> Option<String> {

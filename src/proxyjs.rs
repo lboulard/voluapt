@@ -12,6 +12,32 @@ use winreg::enums::*;
 use std::io;
 use std::net::UdpSocket;
 
+pub struct ProxySettings {
+    pub auto_config_url: Option<String>,
+    pub proxy_server: Option<String>,
+    pub proxy_enable: bool,
+    pub proxy_override: Option<String>,
+}
+
+pub fn get_proxy_settings() -> Option<ProxySettings> {
+    let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+    let settings = hkcu
+        .open_subkey("Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings")
+        .ok()?;
+
+    let auto_config_url = settings.get_value("AutoConfigURL").ok();
+    let proxy_server = settings.get_value("ProxyServer").ok();
+    let proxy_enable = settings.get_value::<u32, _>("ProxyEnable").unwrap_or(0) != 0;
+    let proxy_override = settings.get_value("ProxyOverride").ok();
+
+    Some(ProxySettings {
+        auto_config_url,
+        proxy_server,
+        proxy_enable,
+        proxy_override,
+    })
+}
+
 fn get_my_ip_address() -> Result<String, io::Error> {
     // Trick: connect to a public IP to get the local IP (does not send packets)
     let socket = UdpSocket::bind("0.0.0.0:0")?;
@@ -61,7 +87,7 @@ fn is_plain_host_name(host: &str) -> bool {
     !host.contains('.')
 }
 
-fn fnmatch(pattern: &str, text: &str) -> bool {
+pub fn fnmatch(pattern: &str, text: &str) -> bool {
     fn helper(pat: &[u8], txt: &[u8]) -> bool {
         if pat.is_empty() {
             return txt.is_empty();
@@ -145,21 +171,6 @@ fn date_range_js(args: Vec<u32>) -> bool {
         2 => now.month() == args[0] && now.day() == args[1],
         3 => now.month() == args[0] && now.day() == args[1] && now.year() as u32 == args[2],
         _ => false,
-    }
-}
-
-// Get the system PAC file URL or file path
-pub fn get_pac_url() -> Option<String> {
-    let hkcu = RegKey::predef(HKEY_CURRENT_USER);
-    let settings = hkcu
-        .open_subkey("Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings")
-        .ok()?;
-
-    let auto_config_url: Result<String, _> = settings.get_value("AutoConfigURL");
-    if let Ok(url) = auto_config_url {
-        Some(url)
-    } else {
-        None
     }
 }
 

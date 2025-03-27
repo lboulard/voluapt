@@ -3,6 +3,9 @@ use url::Url;
 mod proxyjs;
 use proxyjs::*;
 
+mod fnmatch;
+use fnmatch::fnmatch;
+
 fn main() {
     // Example URL to test proxy resolution
     let test_url = "http://github.com";

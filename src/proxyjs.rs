@@ -12,6 +12,8 @@ use winreg::enums::*;
 use std::io;
 use std::net::UdpSocket;
 
+use crate::fnmatch::fnmatch;
+
 pub struct ProxySettings {
     pub auto_config_url: Option<String>,
     pub proxy_server: Option<String>,
@@ -85,39 +87,6 @@ fn resolve_dns(host: &str) -> Result<Option<String>, io::Error> {
 
 fn is_plain_host_name(host: &str) -> bool {
     !host.contains('.')
-}
-
-pub fn fnmatch(pattern: &str, text: &str) -> bool {
-    fn helper(pat: &[u8], txt: &[u8]) -> bool {
-        if pat.is_empty() {
-            return txt.is_empty();
-        }
-
-        match pat[0] {
-            b'?' => {
-                // ? matches any single character
-                if txt.is_empty() {
-                    false
-                } else {
-                    helper(&pat[1..], &txt[1..])
-                }
-            }
-            b'*' => {
-                // * matches zero or more characters
-                helper(&pat[1..], txt) || (!txt.is_empty() && helper(pat, &txt[1..]))
-            }
-            _ => {
-                // exact character match
-                if txt.is_empty() || pat[0] != txt[0] {
-                    false
-                } else {
-                    helper(&pat[1..], &txt[1..])
-                }
-            }
-        }
-    }
-
-    helper(pattern.as_bytes(), text.as_bytes())
 }
 
 fn local_host_or_domain_is(host: &str, hostdom: &str) -> bool {

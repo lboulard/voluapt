@@ -3,7 +3,6 @@ use std::io::ErrorKind;
 use std::{fs, net::ToSocketAddrs};
 
 use rquickjs::function::Func;
-use rquickjs::{Context, Runtime};
 
 use ureq::Agent;
 use winreg::RegKey;
@@ -179,142 +178,122 @@ pub fn load_pac_script(pac_url: &str) -> Option<String> {
     }
 }
 
-pub fn create_pac_context(pac_script: &str) -> Context {
-    let rt = Runtime::new().unwrap();
-    let ctx = Context::full(&rt).unwrap();
+pub fn bind_pac_methods<'js>(globals: &rquickjs::Object<'js>) {
+    // Wrap closures with Func::from
+    globals
+        .set(
+            "dnsResolve",
+            Func::from(|host: String| match resolve_dns(&host) {
+                Ok(Some(response)) => {
+                    println!("dnsResolve: {} ({})", host, response);
+                    response
+                }
+                Ok(None) => {
+                    println!("dnsResolve: {} (no response)", host);
+                    "".to_string()
+                }
+                Err(e) => {
+                    println!("dnsResolve: {} (error: {})", host, e);
+                    "".to_string()
+                }
+            }),
+        )
+        .unwrap();
 
-    ctx.with(|ctx| {
-        let global = ctx.globals();
+    globals
+        .set(
+            "dnsDomainIs",
+            Func::from(|host: String, domain: String| {
+                let accepted = dns_domain_is(&host, &domain);
+                println!("dnDomainIs: {} {} ({})", host, domain, accepted,);
+                accepted
+            }),
+        )
+        .unwrap();
 
-        // Wrap closures with Func::from
-        global
-            .set(
-                "dnsResolve",
-                Func::from(|host: String| match resolve_dns(&host) {
-                    Ok(Some(response)) => {
-                        println!("dnsResolve: {} ({})", host, response);
-                        response
-                    }
-                    Ok(None) => {
-                        println!("dnsResolve: {} (no response)", host);
-                        "".to_string()
-                    }
-                    Err(e) => {
-                        println!("dnsResolve: {} (error: {})", host, e);
-                        "".to_string()
-                    }
-                }),
-            )
-            .unwrap();
+    globals
+        .set(
+            "shExpMatch",
+            Func::from(|input: String, pattern: String| {
+                let accepted = fnmatch(&pattern, &input);
+                println!("shExpMath: {} | {} ({})", input, pattern, accepted);
+                accepted
+            }),
+        )
+        .unwrap();
 
-        global
-            .set(
-                "dnsDomainIs",
-                Func::from(|host: String, domain: String| {
-                    let accepted = dns_domain_is(&host, &domain);
-                    println!("dnDomainIs: {} {} ({})", host, domain, accepted,);
-                    accepted
-                }),
-            )
-            .unwrap();
+    globals
+        .set(
+            "myIpAddress",
+            Func::from(|| match get_my_ip_address() {
+                Ok(ip) => {
+                    println!("myIpAddress: {}", ip);
+                    ip
+                }
+                Err(e) => {
+                    println!("myIpAddress: [failed] {}", e);
+                    "127.0.0.1".to_string()
+                }
+            }),
+        )
+        .unwrap();
 
-        global
-            .set(
-                "shExpMatch",
-                Func::from(|input: String, pattern: String| {
-                    let accepted = fnmatch(&pattern, &input);
-                    println!("shExpMath: {} | {} ({})", input, pattern, accepted);
-                    accepted
-                }),
-            )
-            .unwrap();
+    globals
+        .set(
+            "isInNet",
+            Func::from(|ip: String, pattern: String, mask: String| {
+                let accepted = is_in_net(&ip, &pattern, &mask);
+                println!("isInNet: {} | {}/{} ({})", ip, pattern, mask, accepted);
+                accepted
+            }),
+        )
+        .unwrap();
 
-        global
-            .set(
-                "myIpAddress",
-                Func::from(|| match get_my_ip_address() {
-                    Ok(ip) => {
-                        println!("myIpAddress: {}", ip);
-                        ip
-                    }
-                    Err(e) => {
-                        println!("myIpAddress: [failed] {}", e);
-                        "127.0.0.1".to_string()
-                    }
-                }),
-            )
-            .unwrap();
+    globals
+        .set(
+            "isPlainHostName",
+            Func::from(|host: String| {
+                let accepted = is_plain_host_name(&host);
+                println!("isPlainHostName: {} ({})", host, accepted);
+                accepted
+            }),
+        )
+        .unwrap();
 
-        global
-            .set(
-                "isInNet",
-                Func::from(|ip: String, pattern: String, mask: String| {
-                    let accepted = is_in_net(&ip, &pattern, &mask);
-                    println!("isInNet: {} | {}/{} ({})", ip, pattern, mask, accepted);
-                    accepted
-                }),
-            )
-            .unwrap();
+    globals
+        .set(
+            "localHostOrDomainIs",
+            Func::from(|host: String, hostdom: String| local_host_or_domain_is(&host, &hostdom)),
+        )
+        .unwrap();
 
-        global
-            .set(
-                "isPlainHostName",
-                Func::from(|host: String| {
-                    let accepted = is_plain_host_name(&host);
-                    println!("isPlainHostName: {} ({})", host, accepted);
-                    accepted
-                }),
-            )
-            .unwrap();
+    globals
+        .set(
+            "weekdayRange",
+            Func::from(|args: Vec<String>| weekday_range_js(args)),
+        )
+        .unwrap();
 
-        global
-            .set(
-                "localHostOrDomainIs",
-                Func::from(|host: String, hostdom: String| {
-                    local_host_or_domain_is(&host, &hostdom)
-                }),
-            )
-            .unwrap();
+    globals
+        .set(
+            "timeRange",
+            Func::from(|args: Vec<u32>| time_range_js(args)),
+        )
+        .unwrap();
 
-        global
-            .set(
-                "weekdayRange",
-                Func::from(|args: Vec<String>| weekday_range_js(args)),
-            )
-            .unwrap();
+    globals
+        .set(
+            "dateRange",
+            Func::from(|args: Vec<u32>| date_range_js(args)),
+        )
+        .unwrap();
 
-        global
-            .set(
-                "timeRange",
-                Func::from(|args: Vec<u32>| time_range_js(args)),
-            )
-            .unwrap();
-
-        global
-            .set(
-                "dateRange",
-                Func::from(|args: Vec<u32>| date_range_js(args)),
-            )
-            .unwrap();
-
-        global
-            .set(
-                "alert",
-                Func::from(|msg: String| {
-                    eprintln!("[PAC ALERT] {}", msg);
-                }),
-            )
-            .unwrap();
-        ctx.eval::<(), _>(pac_script).unwrap();
-    });
-
-    ctx
-}
-
-pub fn find_proxy(ctx: &Context, url: &str, host: &str) -> Option<String> {
-    ctx.with(|ctx| {
-        let global = ctx.globals();
-        let func: rquickjs::Function = global.get("FindProxyForURL").ok()?;
-        func.call((url.to_string(), host.to_string())).ok()
-    })
+    globals
+        .set(
+            "alert",
+            Func::from(|msg: String| {
+                eprintln!("[PAC ALERT] {}", msg);
+            }),
+        )
+        .unwrap();
 }

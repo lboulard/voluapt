@@ -19,9 +19,23 @@ fn main() {
     if let Some(pac_url) = &settings.auto_config_url {
         println!("PAC URL: {}", pac_url);
         let pac_script = load_pac_script(&pac_url).expect("Could not load PAC script");
-        let ctx = create_pac_context(&pac_script);
 
-        proxy_result = find_proxy(&ctx, test_url, host).unwrap_or("DIRECT".to_string());
+        let rt = rquickjs::Runtime::new().unwrap();
+        let ctx = rquickjs::Context::full(&rt).unwrap();
+
+        ctx.with(|ctx| {
+            // Parse PAC souce code
+            let globals = ctx.globals();
+            bind_pac_methods(&globals);
+            ctx.eval::<(), _>(pac_script).expect("PAC script error");
+
+            // Call FindProxyForURL
+            let func: rquickjs::Function = globals
+                .get("FindProxyForURL")
+                .expect("Missing FindProxyForURL in PAC file");
+
+            proxy_result = func.call((test_url.to_string(), host.to_string())).unwrap();
+        })
     } else if settings.proxy_enable {
         let bypass = settings.proxy_override.clone().unwrap_or_default();
         let bypass_hosts: Vec<&str> = bypass.split(';').collect();

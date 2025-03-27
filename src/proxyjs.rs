@@ -1,3 +1,4 @@
+use chrono::{Datelike, Local, Timelike};
 use std::io::ErrorKind;
 use std::{fs, net::ToSocketAddrs};
 
@@ -91,6 +92,60 @@ fn fnmatch(pattern: &str, text: &str) -> bool {
     }
 
     helper(pattern.as_bytes(), text.as_bytes())
+}
+
+fn local_host_or_domain_is(host: &str, hostdom: &str) -> bool {
+    host == hostdom || hostdom.starts_with(&format!("{}.", host))
+}
+
+fn weekday_range_js(args: Vec<String>) -> bool {
+    let now = Local::now();
+    let current_day = now.weekday().num_days_from_sunday();
+    let days = ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"];
+    let day_index = |d: &str| days.iter().position(|x| *x == d.to_uppercase());
+
+    match args.len() {
+        1 => day_index(&args[0]) == Some(current_day as usize),
+        2 => {
+            if let (Some(start), Some(end)) = (day_index(&args[0]), day_index(&args[1])) {
+                if start <= end {
+                    (start..=end).contains(&(current_day as usize))
+                } else {
+                    let mut range = (start..7).chain(0..=end);
+                    range.any(|d| d == current_day as usize)
+                }
+            } else {
+                false
+            }
+        }
+        _ => false,
+    }
+}
+
+fn time_range_js(args: Vec<u32>) -> bool {
+    let hour = Local::now().hour();
+    match args.len() {
+        1 => hour == args[0],
+        2 => {
+            let (start, end) = (args[0], args[1]);
+            if start <= end {
+                hour >= start && hour <= end
+            } else {
+                hour >= start || hour <= end
+            }
+        }
+        _ => false,
+    }
+}
+
+fn date_range_js(args: Vec<u32>) -> bool {
+    let now = Local::now();
+    match args.len() {
+        1 => now.day() == args[0],
+        2 => now.month() == args[0] && now.day() == args[1],
+        3 => now.month() == args[0] && now.day() == args[1] && now.year() as u32 == args[2],
+        _ => false,
+    }
 }
 
 // Get the system PAC file URL or file path
@@ -232,6 +287,44 @@ pub fn create_pac_context(pac_script: &str) -> Context {
             )
             .unwrap();
 
+        global
+            .set(
+                "localHostOrDomainIs",
+                Func::from(|host: String, hostdom: String| {
+                    local_host_or_domain_is(&host, &hostdom)
+                }),
+            )
+            .unwrap();
+
+        global
+            .set(
+                "weekdayRange",
+                Func::from(|args: Vec<String>| weekday_range_js(args)),
+            )
+            .unwrap();
+
+        global
+            .set(
+                "timeRange",
+                Func::from(|args: Vec<u32>| time_range_js(args)),
+            )
+            .unwrap();
+
+        global
+            .set(
+                "dateRange",
+                Func::from(|args: Vec<u32>| date_range_js(args)),
+            )
+            .unwrap();
+
+        global
+            .set(
+                "alert",
+                Func::from(|msg: String| {
+                    eprintln!("[PAC ALERT] {}", msg);
+                }),
+            )
+            .unwrap();
         ctx.eval::<(), _>(pac_script).unwrap();
     });
 

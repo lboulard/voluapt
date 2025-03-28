@@ -11,3 +11,4 @@ dns-lookup = "1"
 url = "2"
 regex = "1"
 chrono = { version = "0.4", features = ["clock"] }
+mlua = { version = "0.10", features = ["lua54", "vendored"] }

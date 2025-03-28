@@ -76,7 +76,7 @@ fn dns_domain_is(host: &str, domain: &str) -> bool {
 }
 
 // DNS resolver using Windows API (supports IPv4 and IPv6)
-fn resolve_dns(host: &str) -> Result<Option<String>, io::Error> {
+pub fn resolve_dns(host: &str) -> Result<Option<String>, io::Error> {
     let addr_iter = (host, 0).to_socket_addrs()?;
     for addr in addr_iter {
         return Ok(Some(addr.ip().to_string()));

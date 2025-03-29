@@ -76,10 +76,10 @@ fn get_resolver(settings: &ProxySettings) -> Resolver {
         let pac_script = load_pac_script(&pac_url).expect("Could not load PAC script");
 
         let rt = rquickjs::Runtime::new().unwrap();
-        let context = rquickjs::Context::full(&rt).unwrap();
+        let context = Context::full(&rt).unwrap();
 
         context.with(|ctx| {
-            // Parse PAC souce code
+            // Parse PAC source code
             let globals = ctx.globals();
             bind_pac_methods(&globals);
             ctx.eval::<(), _>(pac_script).expect("PAC script error");
@@ -130,7 +130,7 @@ fn run_lua(lua_path: &Path, proxy: &str, resolver: Resolver) {
 
 fn main() {
     // Example URL to test proxy resolution
-    let test_url = "http://github.com";
+    let test_url = "https://github.com";
 
     let settings = get_proxy_settings().expect("Failed to load Windows proxy settings");
 

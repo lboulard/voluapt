@@ -178,7 +178,7 @@ pub fn load_pac_script(pac_url: &str) -> Option<String> {
     }
 }
 
-pub fn bind_pac_methods<'js>(globals: &rquickjs::Object<'js>) {
+pub fn bind_pac_methods(globals: &rquickjs::Object) {
     // Wrap closures with Func::from
     globals
         .set(

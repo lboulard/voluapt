@@ -110,20 +110,31 @@ fn get_resolver(settings: &ProxySettings) -> Resolver {
     }
 }
 
-fn run_lua(lua_path: &Path, proxy: &str, resolver: Resolver, args: &Vec<(String, String)>) {
+fn run_lua(
+    lua_path: &Path,
+    url_proxy: Option<(String, String)>,
+    resolver: Resolver,
+    args: &Vec<(String, String)>,
+) {
     if lua_path.exists() {
         let lua = Lua::new();
         let lua_globals = lua.globals();
 
-        if !proxy.is_empty() {
-            lua_globals.set("proxy", proxy).unwrap();
-        }
+        match url_proxy {
+            Some((url, proxy)) => {
+                lua_globals.set("url", url).unwrap();
+                lua_globals.set("proxy", proxy).unwrap();
+            }
+            None => {}
+        };
 
-        let lua_args = lua.create_table().unwrap();
-        for arg in args {
-            lua_args.set(arg.0.as_str(), arg.1.as_str()).unwrap();
+        if !args.is_empty() {
+            let lua_args = lua.create_table().unwrap();
+            for arg in args {
+                lua_args.set(arg.0.as_str(), arg.1.as_str()).unwrap();
+            }
+            lua_globals.set("args", &lua_args).unwrap();
         }
-        lua_globals.set("args", &lua_args).unwrap();
 
         // Register find_proxy_for_url in Lua
         let find_proxy_fn = lua
@@ -183,7 +194,12 @@ fn main() {
             let resolver = _resolver();
             let proxy_result = resolver.resolve(url);
             let lua_path = Path::new(lua_path);
-            run_lua(lua_path, &proxy_result, resolver, &args.defines);
+            run_lua(
+                lua_path,
+                Some((url.to_string(), proxy_result)),
+                resolver,
+                &args.defines,
+            );
         }
         (Some(url), None) => {
             if !(args.url.is_none() || args.defines.is_empty()) {
@@ -196,7 +212,7 @@ fn main() {
         (None, Some(lua_path)) => {
             let resolver = _resolver();
             let lua_path = Path::new(lua_path);
-            run_lua(lua_path, "", resolver, &args.defines);
+            run_lua(lua_path, None, resolver, &args.defines);
         }
         (None, None) => {
             eprintln!("** ERROR : No URL specified, nor lua script to run.");

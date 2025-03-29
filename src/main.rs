@@ -1,4 +1,4 @@
-use rquickjs::{Context, Function, Persistent};
+use rquickjs::Context;
 use std::fs;
 use std::path::Path;
 use std::process::exit;
@@ -43,19 +43,7 @@ impl ProxyResolver for StaticResolver {
 }
 
 struct PACResolver {
-    context: Context,
-    function: Persistent<Function<'static>>,
-}
-
-fn new_pac_resolver(context: Context) -> PACResolver {
-    let function = context.with(|ctx| {
-        let f: Function = ctx
-            .globals()
-            .get("FindProxyForURL")
-            .expect("Missing FindProxyForURL in PAC file");
-        Persistent::save(&ctx, f)
-    });
-    PACResolver { context, function }
+    ctx: Context,
 }
 
 impl ProxyResolver for PACResolver {
@@ -63,12 +51,16 @@ impl ProxyResolver for PACResolver {
         let parsed = Url::parse(url).unwrap();
         let host = parsed.host_str().unwrap_or("");
 
-        let function = self.function.clone();
-        self.context
+        self.ctx
             .with(|ctx| {
+                let globals = ctx.globals();
+                let find_proxy_for_url: rquickjs::Function = globals
+                    .get("FindProxyForURL")
+                    .expect("Missing FindProxyForURL in PAC file");
+
+                let result = find_proxy_for_url.call((url.to_string(), host.to_string()));
                 ctx.run_gc();
-                let find_proxy_for_url = function.restore(&ctx).unwrap();
-                find_proxy_for_url.call((url.to_string(), host.to_string()))
+                result
             })
             .unwrap_or_default()
     }
@@ -98,7 +90,7 @@ fn get_resolver(settings: &ProxySettings, verbose: bool, trace: bool) -> Resolve
             bind_pac_methods(&globals, trace);
             ctx.eval::<(), _>(pac_script).expect("PAC script error");
         });
-        Box::new(new_pac_resolver(context))
+        Box::new(PACResolver { ctx: context })
     } else if settings.proxy_enable {
         let bypass = settings.proxy_override.clone().unwrap_or_default();
         let bypass_hosts: Vec<&str> = bypass.split(';').collect();

@@ -1,4 +1,4 @@
-use rquickjs::Context;
+use rquickjs::{Context, Function, Persistent};
 use std::fs;
 use std::path::Path;
 use std::process::exit;
@@ -43,7 +43,19 @@ impl ProxyResolver for StaticResolver {
 }
 
 struct PACResolver {
-    ctx: Context,
+    context: Context,
+    function: Persistent<Function<'static>>,
+}
+
+fn new_pac_resolver(context: Context) -> PACResolver {
+    let function = context.with(|ctx| {
+        let f: Function = ctx
+            .globals()
+            .get("FindProxyForURL")
+            .expect("Missing FindProxyForURL in PAC file");
+        Persistent::save(&ctx, f)
+    });
+    PACResolver { context, function }
 }
 
 impl ProxyResolver for PACResolver {
@@ -51,13 +63,10 @@ impl ProxyResolver for PACResolver {
         let parsed = Url::parse(url).unwrap();
         let host = parsed.host_str().unwrap_or("");
 
-        self.ctx
+        let function = self.function.clone();
+        self.context
             .with(|ctx| {
-                let globals = ctx.globals();
-                let find_proxy_for_url: rquickjs::Function = globals
-                    .get("FindProxyForURL")
-                    .expect("Missing FindProxyForURL in PAC file");
-
+                let find_proxy_for_url = function.restore(&ctx).unwrap();
                 find_proxy_for_url.call((url.to_string(), host.to_string()))
             })
             .unwrap_or_default()
@@ -86,7 +95,7 @@ fn get_resolver(settings: &ProxySettings) -> Resolver {
             bind_pac_methods(&globals);
             ctx.eval::<(), _>(pac_script).expect("PAC script error");
         });
-        Box::new(PACResolver { ctx: context })
+        Box::new(new_pac_resolver(context))
     } else if settings.proxy_enable {
         let bypass = settings.proxy_override.clone().unwrap_or_default();
         let bypass_hosts: Vec<&str> = bypass.split(';').collect();

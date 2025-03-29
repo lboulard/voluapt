@@ -1,8 +1,10 @@
 use rquickjs::Context;
 use std::fs;
 use std::path::Path;
+use std::process::exit;
 use url::Url;
 
+use clap::{ArgAction, Parser};
 use mlua::Lua;
 
 mod proxyjs;
@@ -99,12 +101,20 @@ fn get_resolver(settings: &ProxySettings) -> Resolver {
     }
 }
 
-fn run_lua(lua_path: &Path, proxy: &str, resolver: Resolver) {
+fn run_lua(lua_path: &Path, proxy: &str, resolver: Resolver, args: &Vec<(String, String)>) {
     if lua_path.exists() {
         let lua = Lua::new();
         let lua_globals = lua.globals();
 
-        lua_globals.set("proxy", proxy).unwrap();
+        if !proxy.is_empty() {
+            lua_globals.set("proxy", proxy).unwrap();
+        }
+
+        let lua_args = lua.create_table().unwrap();
+        for arg in args {
+            lua_args.set(arg.0.as_str(), arg.1.as_str()).unwrap();
+        }
+        lua_globals.set("args", &lua_args).unwrap();
 
         // Register find_proxy_for_url in Lua
         let find_proxy_fn = lua
@@ -128,18 +138,60 @@ fn run_lua(lua_path: &Path, proxy: &str, resolver: Resolver) {
     }
 }
 
-fn main() {
-    // Example URL to test proxy resolution
-    let test_url = "https://github.com";
+#[derive(Parser, Debug)]
+#[command(author, version, about)]
+struct Args {
+    /// URL to resolve
+    url: Option<String>,
 
+    /// Lua script to run
+    #[arg(long)]
+    lua: Option<String>,
+
+    /// Key=Value definitions for Lua
+    #[arg(short = 'D', value_parser = parse_key_val, action = ArgAction::Append)]
+    defines: Vec<(String, String)>,
+}
+
+fn parse_key_val(s: &str) -> Result<(String, String), String> {
+    let parts: Vec<&str> = s.splitn(2, '=').collect();
+    if parts.len() != 2 {
+        return Err("Define must be in KEY=VALUE format".into());
+    }
+    Ok((parts[0].to_string(), parts[1].to_string()))
+}
+
+fn _resolver() -> Resolver {
     let settings = get_proxy_settings().expect("Failed to load Windows proxy settings");
+    get_resolver(&settings)
+}
 
-    let resolver = get_resolver(&settings);
+fn main() {
+    let args = Args::parse();
 
-    let proxy_result = resolver.resolve(test_url);
-
-    let lua_path = Path::new("proxy.lua");
-    run_lua(lua_path, &proxy_result, resolver);
-
-    println!("\nProxy for {}: {}", test_url, proxy_result);
+    match (&args.url, &args.lua) {
+        (Some(url), Some(lua_path)) => {
+            let resolver = _resolver();
+            let proxy_result = resolver.resolve(url);
+            let lua_path = Path::new(lua_path);
+            run_lua(lua_path, &proxy_result, resolver, &args.defines);
+        }
+        (Some(url), None) => {
+            if !(args.url.is_none() || args.defines.is_empty()) {
+                eprintln!("** WARNING : variable defined and no lua script to run");
+            }
+            let resolver = _resolver();
+            let proxy_result = resolver.resolve(url);
+            println!("{}", proxy_result);
+        }
+        (None, Some(lua_path)) => {
+            let resolver = _resolver();
+            let lua_path = Path::new(lua_path);
+            run_lua(lua_path, "", resolver, &args.defines);
+        }
+        (None, None) => {
+            eprintln!("** ERROR : No URL specified, nor lua script to run.");
+            exit(2);
+        }
+    }
 }

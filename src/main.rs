@@ -66,6 +66,7 @@ impl ProxyResolver for PACResolver {
         let function = self.function.clone();
         self.context
             .with(|ctx| {
+                ctx.run_gc();
                 let find_proxy_for_url = function.restore(&ctx).unwrap();
                 find_proxy_for_url.call((url.to_string(), host.to_string()))
             })

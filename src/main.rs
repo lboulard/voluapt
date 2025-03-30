@@ -1,4 +1,5 @@
 use rquickjs::Context;
+use std::error::Error;
 use std::fs;
 use std::path::Path;
 use std::process::exit;
@@ -210,29 +211,30 @@ fn find_resolver(
     static_proxy: Option<(String, Option<String>)>,
     verbose: bool,
     trace: bool,
-) -> Resolver {
+) -> Result<Resolver, Box<dyn Error>> {
     let settings = match (pac, static_proxy) {
-        (Some(pac), None) => ProxySettings {
+        (Some(pac), None) => Ok(ProxySettings {
             auto_config_url: Some(["file://", &pac].concat()),
             proxy_enable: false,
             proxy_server: None,
             proxy_override: None,
-        },
+        }),
         (None, Some(static_proxy)) => {
             let (proxy_server, proxy_override) = static_proxy;
-            ProxySettings {
+            Ok(ProxySettings {
                 auto_config_url: None,
                 proxy_enable: true,
                 proxy_server: Some(proxy_server.clone()),
                 proxy_override: proxy_override.clone(),
-            }
+            })
         }
-        (Some(_), Some(_)) => {
-            panic!("--pac and --static-proxy are mutually exclusive");
-        }
-        (None, None) => get_proxy_settings().expect("Failed to load Windows proxy settings"),
-    };
-    get_resolver(&settings, verbose, trace)
+        (Some(_), Some(_)) => Err("--pac and --static-proxy are mutually exclusive"),
+        (None, None) => match get_proxy_settings() {
+            Some(settings) => Ok(settings),
+            None => Err("failed to load Windows proxy settings"),
+        },
+    }?;
+    Ok(get_resolver(&settings, verbose, trace))
 }
 
 fn main() {
@@ -255,7 +257,13 @@ fn main() {
         (url, lua) => (url, lua),
     };
 
-    let resolver = find_resolver(args.pac, static_proxy, args.verbose, args.trace);
+    let resolver = match find_resolver(args.pac, static_proxy, args.verbose, args.trace) {
+        Ok(resolver) => resolver,
+        Err(message) => {
+            eprintln!("{}\n", message);
+            exit(1)
+        }
+    };
 
     match (&url, &lua) {
         (Some(url), Some(lua_path)) => {

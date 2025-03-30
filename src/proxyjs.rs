@@ -92,7 +92,7 @@ fn local_host_or_domain_is(host: &str, hostdom: &str) -> bool {
     host == hostdom || hostdom.starts_with(&format!("{}.", host))
 }
 
-fn weekday_range_js(args: Vec<String>) -> bool {
+fn weekday_range_js(args: &Vec<String>) -> bool {
     let now = Local::now();
     let current_day = now.weekday().num_days_from_sunday();
     let days = ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"];
@@ -116,7 +116,7 @@ fn weekday_range_js(args: Vec<String>) -> bool {
     }
 }
 
-fn time_range_js(args: Vec<u32>) -> bool {
+fn time_range_js(args: &Vec<u32>) -> bool {
     let hour = Local::now().hour();
     match args.len() {
         1 => hour == args[0],
@@ -132,7 +132,7 @@ fn time_range_js(args: Vec<u32>) -> bool {
     }
 }
 
-fn date_range_js(args: Vec<u32>) -> bool {
+fn date_range_js(args: &Vec<u32>) -> bool {
     let now = Local::now();
     match args.len() {
         1 => now.day() == args[0],
@@ -178,22 +178,28 @@ pub fn load_pac_script(pac_url: &str) -> Option<String> {
     }
 }
 
-pub fn bind_pac_methods(globals: &rquickjs::Object) {
+pub fn bind_pac_methods(globals: &rquickjs::Object, trace: bool) {
     // Wrap closures with Func::from
     globals
         .set(
             "dnsResolve",
-            Func::from(|host: String| match resolve_dns(&host) {
+            Func::from(move |host: String| match resolve_dns(&host) {
                 Ok(Some(response)) => {
-                    println!("dnsResolve: {} ({})", host, response);
+                    if trace {
+                        eprintln!("dnsResolve: {} ({})", host, response);
+                    }
                     response
                 }
                 Ok(None) => {
-                    println!("dnsResolve: {} (no response)", host);
+                    if trace {
+                        eprintln!("dnsResolve: {} (no response)", host);
+                    }
                     "".to_string()
                 }
                 Err(e) => {
-                    println!("dnsResolve: {} (error: {})", host, e);
+                    if trace {
+                        eprintln!("dnsResolve: {} (error: {})", host, e);
+                    }
                     "".to_string()
                 }
             }),
@@ -203,9 +209,11 @@ pub fn bind_pac_methods(globals: &rquickjs::Object) {
     globals
         .set(
             "dnsDomainIs",
-            Func::from(|host: String, domain: String| {
+            Func::from(move |host: String, domain: String| {
                 let accepted = dns_domain_is(&host, &domain);
-                println!("dnDomainIs: {} {} ({})", host, domain, accepted,);
+                if trace {
+                    eprintln!("dnDomainIs: {} {} ({})", host, domain, accepted,);
+                }
                 accepted
             }),
         )
@@ -214,9 +222,11 @@ pub fn bind_pac_methods(globals: &rquickjs::Object) {
     globals
         .set(
             "shExpMatch",
-            Func::from(|input: String, pattern: String| {
+            Func::from(move |input: String, pattern: String| {
                 let accepted = fnmatch(&pattern, &input);
-                println!("shExpMath: {} | {} ({})", input, pattern, accepted);
+                if trace {
+                    eprintln!("shExpMath: {} | {} ({})", input, pattern, accepted);
+                }
                 accepted
             }),
         )
@@ -225,13 +235,17 @@ pub fn bind_pac_methods(globals: &rquickjs::Object) {
     globals
         .set(
             "myIpAddress",
-            Func::from(|| match get_my_ip_address() {
+            Func::from(move || match get_my_ip_address() {
                 Ok(ip) => {
-                    println!("myIpAddress: {}", ip);
+                    if trace {
+                        eprintln!("myIpAddress: {}", ip);
+                    }
                     ip
                 }
                 Err(e) => {
-                    println!("myIpAddress: [failed] {}", e);
+                    if trace {
+                        eprintln!("myIpAddress: [failed] {}", e);
+                    }
                     "127.0.0.1".to_string()
                 }
             }),
@@ -241,9 +255,11 @@ pub fn bind_pac_methods(globals: &rquickjs::Object) {
     globals
         .set(
             "isInNet",
-            Func::from(|ip: String, pattern: String, mask: String| {
+            Func::from(move |ip: String, pattern: String, mask: String| {
                 let accepted = is_in_net(&ip, &pattern, &mask);
-                println!("isInNet: {} | {}/{} ({})", ip, pattern, mask, accepted);
+                if trace {
+                    eprintln!("isInNet: {} | {}/{} ({})", ip, pattern, mask, accepted);
+                }
                 accepted
             }),
         )
@@ -252,9 +268,11 @@ pub fn bind_pac_methods(globals: &rquickjs::Object) {
     globals
         .set(
             "isPlainHostName",
-            Func::from(|host: String| {
+            Func::from(move |host: String| {
                 let accepted = is_plain_host_name(&host);
-                println!("isPlainHostName: {} ({})", host, accepted);
+                if trace {
+                    eprintln!("isPlainHostName: {} ({})", host, accepted);
+                }
                 accepted
             }),
         )
@@ -263,28 +281,63 @@ pub fn bind_pac_methods(globals: &rquickjs::Object) {
     globals
         .set(
             "localHostOrDomainIs",
-            Func::from(|host: String, hostdom: String| local_host_or_domain_is(&host, &hostdom)),
+            Func::from(move |host: String, hostdom: String| {
+                let accepted = local_host_or_domain_is(&host, &hostdom);
+                if trace {
+                    eprintln!("localHostOrDomainIs: {}/{} ({})", host, hostdom, accepted);
+                }
+                accepted
+            }),
         )
         .unwrap();
 
     globals
         .set(
             "weekdayRange",
-            Func::from(|args: Vec<String>| weekday_range_js(args)),
+            Func::from(move |args: Vec<String>| {
+                let accepted = weekday_range_js(&args);
+                if trace {
+                    let params = args.join(", ");
+                    eprintln!("weekdayRange: [{}] ({})", params, accepted);
+                }
+                accepted
+            }),
         )
         .unwrap();
 
     globals
         .set(
             "timeRange",
-            Func::from(|args: Vec<u32>| time_range_js(args)),
+            Func::from(move |args: Vec<u32>| {
+                let accepted = time_range_js(&args);
+                if trace {
+                    let params = args
+                        .iter()
+                        .map(|u| u.to_string())
+                        .collect::<Vec<String>>()
+                        .join(", ");
+                    eprintln!("timeRange: [{}] ({})", params, accepted);
+                }
+                accepted
+            }),
         )
         .unwrap();
 
     globals
         .set(
             "dateRange",
-            Func::from(|args: Vec<u32>| date_range_js(args)),
+            Func::from(move |args: Vec<u32>| {
+                let accepted = date_range_js(&args);
+                if trace {
+                    let params = args
+                        .iter()
+                        .map(|u| u.to_string())
+                        .collect::<Vec<String>>()
+                        .join(", ");
+                    eprintln!("dateRange: [{}] ({})", params, accepted);
+                }
+                accepted
+            }),
         )
         .unwrap();
 

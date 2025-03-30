@@ -81,7 +81,7 @@ impl ProxyResolver for DirectResolver {
     }
 }
 
-fn get_resolver(settings: &ProxySettings) -> Resolver {
+fn get_resolver(settings: &ProxySettings, trace: bool) -> Resolver {
     if let Some(pac_url) = &settings.auto_config_url {
         println!("PAC URL: {}", pac_url);
         let pac_script = load_pac_script(&pac_url).expect("Could not load PAC script");
@@ -92,7 +92,7 @@ fn get_resolver(settings: &ProxySettings) -> Resolver {
         context.with(|ctx| {
             // Parse PAC source code
             let globals = ctx.globals();
-            bind_pac_methods(&globals);
+            bind_pac_methods(&globals, trace);
             ctx.eval::<(), _>(pac_script).expect("PAC script error");
         });
         Box::new(new_pac_resolver(context))
@@ -171,6 +171,10 @@ struct Args {
     /// Key=Value definitions for Lua
     #[arg(short = 'D', value_parser = parse_key_val, action = ArgAction::Append)]
     defines: Vec<(String, String)>,
+
+    /// trace JavaScript for PAC
+    #[arg(short = 't')]
+    trace: bool,
 }
 
 fn parse_key_val(s: &str) -> Result<(String, String), String> {
@@ -181,9 +185,9 @@ fn parse_key_val(s: &str) -> Result<(String, String), String> {
     Ok((parts[0].to_string(), parts[1].to_string()))
 }
 
-fn _resolver() -> Resolver {
+fn _resolver(trace: bool) -> Resolver {
     let settings = get_proxy_settings().expect("Failed to load Windows proxy settings");
-    get_resolver(&settings)
+    get_resolver(&settings, trace)
 }
 
 fn main() {
@@ -191,7 +195,7 @@ fn main() {
 
     match (&args.url, &args.lua) {
         (Some(url), Some(lua_path)) => {
-            let resolver = _resolver();
+            let resolver = _resolver(args.trace);
             let proxy_result = resolver.resolve(url);
             let lua_path = Path::new(lua_path);
             run_lua(
@@ -205,12 +209,12 @@ fn main() {
             if !(args.url.is_none() || args.defines.is_empty()) {
                 eprintln!("** WARNING : variable defined and no lua script to run");
             }
-            let resolver = _resolver();
+            let resolver = _resolver(args.trace);
             let proxy_result = resolver.resolve(url);
             println!("{}", proxy_result);
         }
         (None, Some(lua_path)) => {
-            let resolver = _resolver();
+            let resolver = _resolver(args.trace);
             let lua_path = Path::new(lua_path);
             run_lua(lua_path, None, resolver, &args.defines);
         }

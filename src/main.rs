@@ -239,19 +239,26 @@ fn main() {
     let args = Args::parse();
 
     let static_proxy = match (args.static_proxy, args.bypass_proxy) {
-        (Some(static_proxy), bypass_proxy) => {
-            Some((static_proxy, bypass_proxy))
-        },
+        (Some(static_proxy), bypass_proxy) => Some((static_proxy, bypass_proxy)),
         (None, Some(_)) => {
             eprintln!("--bypass_proxy requires --static_proxy option");
             exit(1)
-        },
+        }
         _ => None,
     };
 
-    match (&args.url, &args.lua) {
+    let (url, lua) = match (&args.url, &args.lua) {
+        (None, None) => {
+            eprintln!("** ERROR : No URL specified, nor lua script to run.");
+            exit(2);
+        }
+        (url, lua) => (url, lua),
+    };
+
+    let resolver = find_resolver(args.pac, static_proxy, args.verbose, args.trace);
+
+    match (&url, &lua) {
         (Some(url), Some(lua_path)) => {
-            let resolver = find_resolver(args.pac, static_proxy, args.verbose, args.trace);
             let proxy_result = resolver.resolve(url);
             let lua_path = Path::new(lua_path);
             run_lua(
@@ -265,18 +272,15 @@ fn main() {
             if !(args.url.is_none() || args.defines.is_empty()) {
                 eprintln!("** WARNING : variable defined and no lua script to run");
             }
-            let resolver = find_resolver(args.pac, static_proxy, args.verbose, args.trace);
             let proxy_result = resolver.resolve(url);
             println!("{}", proxy_result);
         }
         (None, Some(lua_path)) => {
-            let resolver = find_resolver(args.pac, static_proxy, args.verbose, args.trace);
             let lua_path = Path::new(lua_path);
             run_lua(lua_path, None, resolver, &args.defines);
         }
         (None, None) => {
-            eprintln!("** ERROR : No URL specified, nor lua script to run.");
-            exit(2);
+            unreachable!("no URL specified, nor lua script to run.");
         }
     }
 }

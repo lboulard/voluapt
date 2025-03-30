@@ -173,6 +173,10 @@ struct Args {
     #[arg(short = 'D', value_parser = parse_key_val, action = ArgAction::Append)]
     defines: Vec<(String, String)>,
 
+    /// Provide PAC file manually, and ignore Internet Settings
+    #[arg(long)]
+    pac: Option<String>,
+
     /// trace JavaScript for PAC
     #[arg(short = 't')]
     trace: bool,
@@ -186,8 +190,17 @@ fn parse_key_val(s: &str) -> Result<(String, String), String> {
     Ok((parts[0].to_string(), parts[1].to_string()))
 }
 
-fn _resolver(trace: bool) -> Resolver {
-    let settings = get_proxy_settings().expect("Failed to load Windows proxy settings");
+fn _resolver(pac: Option<String>, trace: bool) -> Resolver {
+    let settings = if let Some(pac) = pac {
+        ProxySettings {
+            auto_config_url: Some("file://".to_owned() + &*pac),
+            proxy_enable: false,
+            proxy_override: None,
+            proxy_server: None,
+        }
+    } else {
+        get_proxy_settings().expect("Failed to load Windows proxy settings")
+    };
     get_resolver(&settings, trace)
 }
 
@@ -196,7 +209,7 @@ fn main() {
 
     match (&args.url, &args.lua) {
         (Some(url), Some(lua_path)) => {
-            let resolver = _resolver(args.trace);
+            let resolver = _resolver(args.pac, args.trace);
             let proxy_result = resolver.resolve(url);
             let lua_path = Path::new(lua_path);
             run_lua(
@@ -210,12 +223,12 @@ fn main() {
             if !(args.url.is_none() || args.defines.is_empty()) {
                 eprintln!("** WARNING : variable defined and no lua script to run");
             }
-            let resolver = _resolver(args.trace);
+            let resolver = _resolver(args.pac, args.trace);
             let proxy_result = resolver.resolve(url);
             println!("{}", proxy_result);
         }
         (None, Some(lua_path)) => {
-            let resolver = _resolver(args.trace);
+            let resolver = _resolver(args.pac, args.trace);
             let lua_path = Path::new(lua_path);
             run_lua(lua_path, None, resolver, &args.defines);
         }

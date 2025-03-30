@@ -82,9 +82,11 @@ impl ProxyResolver for DirectResolver {
     }
 }
 
-fn get_resolver(settings: &ProxySettings, trace: bool) -> Resolver {
+fn get_resolver(settings: &ProxySettings, verbose: bool, trace: bool) -> Resolver {
     if let Some(pac_url) = &settings.auto_config_url {
-        println!("PAC URL: {}", pac_url);
+        if verbose {
+            eprintln!("PAC_URL={}", pac_url);
+        }
         let pac_script = load_pac_script(&pac_url).expect("Could not load PAC script");
 
         let rt = rquickjs::Runtime::new().unwrap();
@@ -105,8 +107,17 @@ fn get_resolver(settings: &ProxySettings, trace: bool) -> Resolver {
             proxy_server: settings.proxy_server.clone().unwrap_or_default(),
             by_pass: bypass_hosts.iter().map(|s| s.to_string()).collect(),
         };
+
+        if verbose {
+            eprintln!("HTTP_PROXY={}", static_proxy.proxy_server);
+            eprintln!("NO_PROXY={}", static_proxy.by_pass.join(","));
+        }
         Box::new(static_proxy)
     } else {
+        if verbose {
+            eprintln!("HTTP_PROXY=");
+            eprintln!("NO_PROXY=");
+        }
         Box::new(DirectResolver)
     }
 }
@@ -180,6 +191,10 @@ struct Args {
     /// trace JavaScript for PAC
     #[arg(short = 't')]
     trace: bool,
+
+    /// verbose message on error output
+    #[arg(short = 'v')]
+    verbose: bool,
 }
 
 fn parse_key_val(s: &str) -> Result<(String, String), String> {
@@ -190,7 +205,7 @@ fn parse_key_val(s: &str) -> Result<(String, String), String> {
     Ok((parts[0].to_string(), parts[1].to_string()))
 }
 
-fn _resolver(pac: Option<String>, trace: bool) -> Resolver {
+fn _resolver(pac: Option<String>, verbose: bool, trace: bool) -> Resolver {
     let settings = if let Some(pac) = pac {
         ProxySettings {
             auto_config_url: Some("file://".to_owned() + &*pac),
@@ -201,7 +216,7 @@ fn _resolver(pac: Option<String>, trace: bool) -> Resolver {
     } else {
         get_proxy_settings().expect("Failed to load Windows proxy settings")
     };
-    get_resolver(&settings, trace)
+    get_resolver(&settings, verbose, trace)
 }
 
 fn main() {
@@ -209,7 +224,7 @@ fn main() {
 
     match (&args.url, &args.lua) {
         (Some(url), Some(lua_path)) => {
-            let resolver = _resolver(args.pac, args.trace);
+            let resolver = _resolver(args.pac, args.verbose, args.trace);
             let proxy_result = resolver.resolve(url);
             let lua_path = Path::new(lua_path);
             run_lua(
@@ -223,12 +238,12 @@ fn main() {
             if !(args.url.is_none() || args.defines.is_empty()) {
                 eprintln!("** WARNING : variable defined and no lua script to run");
             }
-            let resolver = _resolver(args.pac, args.trace);
+            let resolver = _resolver(args.pac, args.verbose, args.trace);
             let proxy_result = resolver.resolve(url);
             println!("{}", proxy_result);
         }
         (None, Some(lua_path)) => {
-            let resolver = _resolver(args.pac, args.trace);
+            let resolver = _resolver(args.pac, args.verbose, args.trace);
             let lua_path = Path::new(lua_path);
             run_lua(lua_path, None, resolver, &args.defines);
         }

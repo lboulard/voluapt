@@ -180,6 +180,14 @@ struct Args {
     #[arg(long)]
     pac: Option<String>,
 
+    /// Configure for a static HTTP proxy, mutually exclusive with --pac
+    #[arg(long)]
+    static_proxy: Option<String>,
+
+    /// Ignore proxy configuration for those site. Accept '*' pattern. Repeat for multiple bypass.
+    #[arg(action = ArgAction::Append)]
+    bypass_proxy: Option<String>,
+
     /// trace JavaScript for PAC
     #[arg(short = 't')]
     trace: bool,
@@ -197,16 +205,32 @@ fn parse_key_val(s: &str) -> Result<(String, String), String> {
     Ok((parts[0].to_string(), parts[1].to_string()))
 }
 
-fn _resolver(pac: Option<String>, verbose: bool, trace: bool) -> Resolver {
-    let settings = if let Some(pac) = pac {
-        ProxySettings {
-            auto_config_url: Some("file://".to_owned() + &*pac),
+fn find_resolver(
+    pac: Option<String>,
+    static_proxy: Option<(String, Option<String>)>,
+    verbose: bool,
+    trace: bool,
+) -> Resolver {
+    let settings = match (pac, static_proxy) {
+        (Some(pac), None) => ProxySettings {
+            auto_config_url: Some(["file://", &pac].concat()),
             proxy_enable: false,
-            proxy_override: None,
             proxy_server: None,
+            proxy_override: None,
+        },
+        (None, Some(static_proxy)) => {
+            let (proxy_server, proxy_override) = static_proxy;
+            ProxySettings {
+                auto_config_url: None,
+                proxy_enable: true,
+                proxy_server: Some(proxy_server.clone()),
+                proxy_override: proxy_override.clone(),
+            }
         }
-    } else {
-        get_proxy_settings().expect("Failed to load Windows proxy settings")
+        (Some(_), Some(_)) => {
+            panic!("--pac and --static-proxy are mutually exclusive");
+        }
+        (None, None) => get_proxy_settings().expect("Failed to load Windows proxy settings"),
     };
     get_resolver(&settings, verbose, trace)
 }
@@ -214,9 +238,20 @@ fn _resolver(pac: Option<String>, verbose: bool, trace: bool) -> Resolver {
 fn main() {
     let args = Args::parse();
 
+    let static_proxy = match (args.static_proxy, args.bypass_proxy) {
+        (Some(static_proxy), bypass_proxy) => {
+            Some((static_proxy, bypass_proxy))
+        },
+        (None, Some(_)) => {
+            eprintln!("--bypass_proxy requires --static_proxy option");
+            exit(1)
+        },
+        _ => None,
+    };
+
     match (&args.url, &args.lua) {
         (Some(url), Some(lua_path)) => {
-            let resolver = _resolver(args.pac, args.verbose, args.trace);
+            let resolver = find_resolver(args.pac, static_proxy, args.verbose, args.trace);
             let proxy_result = resolver.resolve(url);
             let lua_path = Path::new(lua_path);
             run_lua(
@@ -230,12 +265,12 @@ fn main() {
             if !(args.url.is_none() || args.defines.is_empty()) {
                 eprintln!("** WARNING : variable defined and no lua script to run");
             }
-            let resolver = _resolver(args.pac, args.verbose, args.trace);
+            let resolver = find_resolver(args.pac, static_proxy, args.verbose, args.trace);
             let proxy_result = resolver.resolve(url);
             println!("{}", proxy_result);
         }
         (None, Some(lua_path)) => {
-            let resolver = _resolver(args.pac, args.verbose, args.trace);
+            let resolver = find_resolver(args.pac, static_proxy, args.verbose, args.trace);
             let lua_path = Path::new(lua_path);
             run_lua(lua_path, None, resolver, &args.defines);
         }

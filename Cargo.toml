@@ -4,7 +4,6 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-winreg = "0.50"
 ureq = "2"
 rquickjs = "0.9.0"
 dns-lookup = "1"
@@ -13,3 +12,6 @@ regex = "1"
 chrono = { version = "0.4", features = ["clock"] }
 mlua = { version = "0.10", features = ["lua54", "vendored"] }
 clap = { version = "4.5", features = ["derive"] }
+
+[target.'cfg(windows)'.dependencies]
+winreg = "0.50"

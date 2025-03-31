@@ -213,27 +213,22 @@ fn find_resolver(
     trace: bool,
 ) -> Result<Resolver, Box<dyn Error>> {
     let settings = match (pac, static_proxy) {
-        (Some(pac), None) => Ok(ProxySettings {
-            auto_config_url: Some(["file://", &pac].concat()),
+        (Some(pac), None) => Ok::<_, Box<dyn Error>>(ProxySettings {
+            auto_config_url: Some(format!("file://{}", pac)),
             proxy_enable: false,
             proxy_server: None,
             proxy_override: None,
         }),
-        (None, Some(static_proxy)) => {
-            let (proxy_server, proxy_override) = static_proxy;
-            Ok(ProxySettings {
-                auto_config_url: None,
-                proxy_enable: true,
-                proxy_server: Some(proxy_server.clone()),
-                proxy_override: proxy_override.clone(),
-            })
-        }
-        (Some(_), Some(_)) => Err("--pac and --static-proxy are mutually exclusive"),
-        (None, None) => match get_proxy_settings() {
-            Some(settings) => Ok(settings),
-            None => Err("failed to load Windows proxy settings"),
-        },
+        (None, Some((proxy_server, proxy_override))) => Ok(ProxySettings {
+            auto_config_url: None,
+            proxy_enable: true,
+            proxy_server: Some(proxy_server),
+            proxy_override,
+        }),
+        (Some(_), Some(_)) => Err("--pac and --static-proxy are mutually exclusive".into()),
+        (None, None) => get_proxy_settings().map_err(Into::into),
     }?;
+
     Ok(get_resolver(&settings, verbose, trace))
 }
 

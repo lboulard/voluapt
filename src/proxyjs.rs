@@ -1,6 +1,6 @@
 use chrono::{Datelike, Local, Timelike};
 use std::io::ErrorKind;
-use std::{fs, net::ToSocketAddrs};
+use std::{error, fmt, fs, net::ToSocketAddrs};
 
 use rquickjs::function::Func;
 
@@ -13,6 +13,24 @@ use std::net::UdpSocket;
 
 use crate::fnmatch::fnmatch;
 
+#[derive(Debug)]
+pub struct ProxySettingsError {
+    pub message: String,
+    source: io::Error,
+}
+
+impl fmt::Display for ProxySettingsError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}: {}", self.message, self.source)
+    }
+}
+
+impl error::Error for ProxySettingsError {
+    fn source(&self) -> Option<&(dyn error::Error + 'static)> {
+        Some(&self.source)
+    }
+}
+
 pub struct ProxySettings {
     pub auto_config_url: Option<String>,
     pub proxy_server: Option<String>,
@@ -20,18 +38,21 @@ pub struct ProxySettings {
     pub proxy_override: Option<String>,
 }
 
-pub fn get_proxy_settings() -> Option<ProxySettings> {
+pub fn get_proxy_settings() -> Result<ProxySettings, ProxySettingsError> {
     let hkcu = RegKey::predef(HKEY_CURRENT_USER);
     let settings = hkcu
         .open_subkey("Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings")
-        .ok()?;
+        .map_err(|e| ProxySettingsError {
+            message: "Windows Internet Settings".into(),
+            source: e,
+        })?;
 
     let auto_config_url = settings.get_value("AutoConfigURL").ok();
     let proxy_server = settings.get_value("ProxyServer").ok();
     let proxy_enable = settings.get_value::<u32, _>("ProxyEnable").unwrap_or(0) != 0;
     let proxy_override = settings.get_value("ProxyOverride").ok();
 
-    Some(ProxySettings {
+    Ok(ProxySettings {
         auto_config_url,
         proxy_server,
         proxy_enable,

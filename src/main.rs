@@ -307,7 +307,7 @@ fn find_resolver(
 ) -> Result<Resolver, Box<dyn Error>> {
     let settings = match (pac, static_proxy, proxy_override) {
         (Some(pac), None, proxy_override) => Ok::<_, Box<dyn Error>>(ProxySettings {
-            auto_config_url: Some(format!("file://{}", pac)),
+            auto_config_url: Some(pac),
             proxy_enable: false,
             proxy_server: None,
             proxy_override,

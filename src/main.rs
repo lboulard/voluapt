@@ -96,14 +96,6 @@ impl ProxyResolver for DirectResolver {
 }
 
 fn get_resolver(settings: &ProxySettings, verbose: bool, trace: bool) -> Resolver {
-    let proxy_override = settings.proxy_override.clone().unwrap_or_default();
-    let by_pass = proxy_override
-        .split(&[';', ','])
-        .collect::<Vec<&str>>()
-        .iter()
-        .map(|s| s.to_string())
-        .collect();
-
     if let Some(pac_url) = &settings.auto_config_url {
         if verbose {
             eprintln!("PAC_URL={}", pac_url);
@@ -121,12 +113,12 @@ fn get_resolver(settings: &ProxySettings, verbose: bool, trace: bool) -> Resolve
         });
         Box::new(PACResolver {
             ctx: context,
-            by_pass,
+            by_pass: settings.proxy_override.clone(),
         })
     } else if settings.proxy_enable {
         let static_proxy = StaticResolver {
             proxy_server: settings.proxy_server.clone().unwrap_or_default(),
-            by_pass,
+            by_pass: settings.proxy_override.clone(),
         };
 
         if verbose {
@@ -229,8 +221,8 @@ struct Args {
     static_proxy: Option<String>,
 
     /// Ignore proxy configuration for those site. Accept '*' pattern. Repeat for multiple bypass.
-    #[arg(action = ArgAction::Append)]
-    bypass_proxy: Option<String>,
+    #[arg(short='N', action = ArgAction::Append)]
+    bypass: Vec<String>,
 
     /// trace JavaScript for PAC
     #[arg(short = 't')]
@@ -252,7 +244,7 @@ fn parse_key_val(s: &str) -> Result<(String, String), String> {
 fn find_resolver(
     pac: Option<String>,
     static_proxy: Option<String>,
-    proxy_override: Option<String>,
+    proxy_override: Vec<String>,
     verbose: bool,
     trace: bool,
 ) -> Result<Resolver, Box<dyn Error>> {
@@ -280,7 +272,7 @@ fn main() {
     let args = Args::parse();
 
     // validate program arguments
-    let (url, lua) = match (&args.pac, &args.static_proxy, &args.bypass_proxy) {
+    let (url, lua) = match (&args.pac, &args.static_proxy, &args.bypass) {
         (Some(_), Some(_), _) => Err("--pac and --static-proxy are mutually exclusive"),
         _ => Ok((None::<String>, None::<String>)),
     }
@@ -296,7 +288,7 @@ fn main() {
     let resolver = match find_resolver(
         args.pac,
         args.static_proxy,
-        args.bypass_proxy,
+        args.bypass,
         args.verbose,
         args.trace,
     ) {

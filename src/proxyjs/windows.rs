@@ -45,7 +45,17 @@ pub fn get_proxy_settings() -> Result<ProxySettings, ProxySettingsError> {
     let auto_config_url = settings.get_value("AutoConfigURL").ok();
     let proxy_server = settings.get_value("ProxyServer").ok();
     let proxy_enable = settings.get_value::<u32, _>("ProxyEnable").unwrap_or(0) != 0;
-    let proxy_override = settings.get_value("ProxyOverride").ok();
+    let proxy_override_string = settings.get_value::<String, _>("ProxyOverride").ok();
+
+    let proxy_override = match proxy_override_string {
+        Some(bypass) => bypass
+            .split(';')
+            .collect::<Vec<&str>>()
+            .iter()
+            .map(|s| s.to_string())
+            .collect(),
+        None => vec![],
+    };
 
     Ok(ProxySettings {
         auto_config_url,

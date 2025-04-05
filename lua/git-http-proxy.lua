@@ -36,12 +36,12 @@ local hosts_url = {
 	"https://gopkg.in",
 }
 
-local writer, defines, write_to
+local writer, defines, outfile
 
 defines = context.defines or {}
-write_to = defines and defines.writeto and defines.writeto ~= ""
-if write_to then
-	writer = io.open(write_to, "w+")
+outfile = defines and defines.outfile ~= "" and defines.outfile
+if outfile then
+	writer = io.open(outfile, "w+")
 else
 	writer = io.output()
 end

@@ -198,8 +198,65 @@ fn run_lua(
     }
 }
 
+#[cfg(windows)]
+macro_rules! platform_help {
+    () => {
+        "\
+Use Internet Settings on Windows by default.\n\
+Override default behaviour using --proxy for static HTTP PROXY,\n\
+or use alternative PAC file with --pac.\n\
+"
+    };
+}
+
+#[cfg(unix)]
+macro_rules! platform_help {
+    () => {
+        "\
+One of --proxy for static HTTP PROXY, or --pac for PAC file is required.\n\
+"
+    };
+}
+
+macro_rules! after_help {
+    () => {
+        concat!(
+            platform_help!(),
+            r#"
+PAC file can be a local file (with and without "file://" prefix),
+or a HTTP/HTTPS url like "https://lan.corp/proxy.pac".
+
+Option --bypass is used in PAC proxy resolver and static HTTP proxy.
+In case a host match by-pass list, PAC script is not called.
+
+When lua script is given, URL argument is optional.
+If URL argument is present, proxy for URL is resolved.
+Then proxy and URL are given in proxy context to lua script.
+
+Script in lua receive a "context" in global with following fields:
+
+  - context.find_proxy_for_url(url): function to resolve proxy for an URL
+  - context.url: non nil when URL is given to program argument
+  - context.proxy: result of proxy resolution on context.url
+  - context.by_pass_list: table from by pass arguments from command line (or
+                          Windows Internet Setting when proxy is activated)
+  - context.defines: key/value as defined from command line -D option
+  - context.dns_resolve(hostname): function to resolve DNS address to IPv4
+
+Proxy response for find_proxy_for_url() or context.proxy, match those
+patterns:
+
+  - DIRECT
+  - PROXY xxx.xxx.xxx.xxx:port (when IPv4 address)
+  - PROXY example.proxy.corp:port (when using DNS to find proxy address)
+"#
+        )
+    };
+}
+
 #[derive(Parser, Debug)]
-#[command(author, version, about)]
+#[command(author, version, about, long_about = None)]
+#[command(after_help = after_help!())]
 struct Args {
     /// URL to resolve
     url: Option<String>,

@@ -217,19 +217,19 @@ struct Args {
     pac: Option<String>,
 
     /// Configure for a static HTTP proxy, mutually exclusive with --pac
-    #[arg(long)]
+    #[arg(long = "proxy")]
     static_proxy: Option<String>,
 
     /// Ignore proxy configuration for those site. Accept '*' pattern. Repeat for multiple bypass.
-    #[arg(short='N', action = ArgAction::Append)]
+    #[arg(short='N', long="bypass", action = ArgAction::Append)]
     bypass: Vec<String>,
 
     /// trace JavaScript for PAC
-    #[arg(short = 't')]
+    #[arg(short = 't', long = "trace")]
     trace: bool,
 
     /// verbose message on error output
-    #[arg(short = 'v')]
+    #[arg(short = 'v', long = "verbose")]
     verbose: bool,
 }
 

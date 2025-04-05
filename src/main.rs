@@ -319,7 +319,15 @@ fn find_resolver(
             proxy_override,
         }),
         (Some(_), Some(_), _) => Err("--pac and --static-proxy are mutually exclusive".into()),
-        (None, None, _) => get_proxy_settings().map_err(Into::into),
+        (None, None, proxy_override) => match get_proxy_settings().map_err(Into::into) {
+            Ok(settings) => Ok(ProxySettings {
+                auto_config_url: settings.auto_config_url,
+                proxy_enable: settings.proxy_enable,
+                proxy_server: settings.proxy_server,
+                proxy_override: [settings.proxy_override, proxy_override].concat(),
+            }),
+            Err(e) => Err(e),
+        },
     }?;
 
     Ok(get_resolver(&settings, verbose, trace))

@@ -6,7 +6,7 @@ use std::process::exit;
 use url::Url;
 
 use clap::{ArgAction, Parser};
-use mlua::Lua;
+use mlua::{Lua, Table};
 
 mod proxyjs;
 use proxyjs::*;
@@ -143,6 +143,45 @@ fn get_resolver(settings: &ProxySettings, verbose: bool, trace: bool) -> Resolve
     }
 }
 
+fn create_lua_context(
+    lua: &Lua,
+    url_proxy: Option<(String, String)>,
+    resolver: Resolver,
+    defines: &Vec<(String, String)>,
+) -> Table {
+    let context = lua.create_table().unwrap();
+
+    match url_proxy {
+        Some((url, proxy)) => {
+            context.set("url", url).unwrap();
+            context.set("proxy", proxy).unwrap();
+        }
+        None => {}
+    };
+
+    context.set("by_pass_list", resolver.no_proxy()).unwrap();
+
+    let context_defines = lua.create_table().unwrap();
+    for arg in defines {
+        context_defines.set(arg.0.as_str(), arg.1.as_str()).unwrap();
+    }
+    context.set("defines", &context_defines).unwrap();
+
+    // Register find_proxy_for_url in Lua
+    let find_proxy_fn = lua
+        .create_function(move |_, url: String| Ok(resolver.resolve(&url)))
+        .unwrap();
+    context.set("find_proxy_for_url", find_proxy_fn).unwrap();
+
+    // Register dns_resolve in Lua
+    let dns_resolve_fn = lua
+        .create_function(|_, host: String| Ok(resolve_dns(&host).unwrap_or_default()))
+        .unwrap();
+    context.set("dns_resolve", dns_resolve_fn).unwrap();
+
+    context
+}
+
 fn run_lua(
     lua_path: &Path,
     url_proxy: Option<(String, String)>,
@@ -151,40 +190,13 @@ fn run_lua(
 ) {
     if lua_path.exists() {
         let lua = Lua::new();
-        let lua_globals = lua.globals();
 
-        match url_proxy {
-            Some((url, proxy)) => {
-                lua_globals.set("url", url).unwrap();
-                lua_globals.set("proxy", proxy).unwrap();
-            }
-            None => {}
-        };
-
-        if !args.is_empty() {
-            let lua_args = lua.create_table().unwrap();
-            for arg in args {
-                lua_args.set(arg.0.as_str(), arg.1.as_str()).unwrap();
-            }
-            lua_globals.set("args", &lua_args).unwrap();
-        }
-        lua_globals
-            .set("by_pass_list", resolver.no_proxy())
+        lua.globals()
+            .set(
+                "context",
+                &create_lua_context(&lua, url_proxy, resolver, args),
+            )
             .unwrap();
-
-        // Register find_proxy_for_url in Lua
-        let find_proxy_fn = lua
-            .create_function(move |_, url: String| Ok(resolver.resolve(&url)))
-            .unwrap();
-        lua_globals
-            .set("find_proxy_for_url", find_proxy_fn)
-            .unwrap();
-
-        // Register dns_resolve in Lua
-        let dns_resolve_fn = lua
-            .create_function(|_, host: String| Ok(resolve_dns(&host).unwrap_or_default()))
-            .unwrap();
-        lua_globals.set("dns_resolve", dns_resolve_fn).unwrap();
 
         lua.load(&fs::read_to_string(lua_path).expect("Failed to read Lua script"))
             .exec()

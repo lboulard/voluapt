@@ -1,7 +1,12 @@
-if not url then
+local context = context or {}
+
+if context.url then
+    proxy = context.proxy
+else
     -- when no url argument was given to system-proxy invocation
-	proxy = find_proxy_for_url("https://example.com")
+	proxy = context.find_proxy_for_url("https://example.com")
 end
+
 local f = io.open(".wgetrc", "w+")
 if proxy ~= "DIRECT" then
 	local proxy_host = proxy:gsub("PROXY ", "")

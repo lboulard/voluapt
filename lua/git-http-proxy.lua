@@ -3,6 +3,8 @@
 -- default to write on standard output
 -- define savefile to save to a file with "-Dsavefile=/path/to/my/file"
 
+local context = context or {}
+
 local function git_http_proxy(writer, git_pattern, proxy)
 	local is_proxy = string.match(proxy, "^PROXY%s+(.+)%s*$")
 	if proxy == "DIRECT" then
@@ -34,15 +36,20 @@ local hosts_url = {
 	"https://gopkg.in",
 }
 
-local writer
-if args and args.savefile then
-	writer = io.open(tostring(args.savefile), "w+")
+local writer, defines, write_to
+
+defines = context.defines or {}
+write_to = defines and defines.writeto and defines.writeto ~= ""
+if write_to then
+	writer = io.open(write_to, "w+")
 else
 	writer = io.output()
 end
 
 writer:setvbuf("line")
 writer:write("# vim: set ft=gitconfig et ts=8 sts=8 sw=8:\n")
+writer:write("\n")
+
 for _, url_or_table in ipairs(hosts_url) do
 	local url, git_pattern
 	if type(url_or_table) == "table" then
@@ -52,7 +59,6 @@ for _, url_or_table in ipairs(hosts_url) do
 		url = tostring(url_or_table)
 		git_pattern = url
 	end
-	local proxy = find_proxy_for_url(url)
-	writer:write("\n")
+	local proxy = context.find_proxy_for_url(url)
 	git_http_proxy(writer, git_pattern, proxy)
 end

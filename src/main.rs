@@ -16,6 +16,7 @@ use fnmatch::fnmatch;
 
 trait ProxyResolver {
     fn resolve(&self, url: &str) -> String;
+    fn no_proxy(&self) -> Vec<String>;
 }
 
 type Resolver = Box<dyn ProxyResolver>;
@@ -41,10 +42,15 @@ impl ProxyResolver for StaticResolver {
         }
         proxy_result
     }
+
+    fn no_proxy(&self) -> Vec<String> {
+        self.by_pass.clone()
+    }
 }
 
 struct PACResolver {
     ctx: Context,
+    by_pass: Vec<String>,
 }
 
 impl ProxyResolver for PACResolver {
@@ -52,18 +58,28 @@ impl ProxyResolver for PACResolver {
         let parsed = Url::parse(url).unwrap();
         let host = parsed.host_str().unwrap_or("");
 
-        self.ctx
-            .with(|ctx| {
-                let globals = ctx.globals();
-                let find_proxy_for_url: rquickjs::Function = globals
-                    .get("FindProxyForURL")
-                    .expect("Missing FindProxyForURL in PAC file");
+        let is_bypassed = self.by_pass.iter().any(|pattern| fnmatch(pattern, host));
 
-                let result = find_proxy_for_url.call((url.to_string(), host.to_string()));
-                ctx.run_gc();
-                result
-            })
-            .unwrap_or_default()
+        if is_bypassed {
+            "DIRECT".to_string()
+        } else {
+            self.ctx
+                .with(|ctx| {
+                    let globals = ctx.globals();
+                    let find_proxy_for_url: rquickjs::Function = globals
+                        .get("FindProxyForURL")
+                        .expect("Missing FindProxyForURL in PAC file");
+
+                    let result = find_proxy_for_url.call((url.to_string(), host.to_string()));
+                    ctx.run_gc();
+                    result
+                })
+                .unwrap_or_default()
+        }
+    }
+
+    fn no_proxy(&self) -> Vec<String> {
+        self.by_pass.clone()
     }
 }
 
@@ -73,9 +89,21 @@ impl ProxyResolver for DirectResolver {
     fn resolve(&self, _url: &str) -> String {
         "DIRECT".to_string()
     }
+
+    fn no_proxy(&self) -> Vec<String> {
+        vec![]
+    }
 }
 
 fn get_resolver(settings: &ProxySettings, verbose: bool, trace: bool) -> Resolver {
+    let proxy_override = settings.proxy_override.clone().unwrap_or_default();
+    let by_pass = proxy_override
+        .split(&[';', ','])
+        .collect::<Vec<&str>>()
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+
     if let Some(pac_url) = &settings.auto_config_url {
         if verbose {
             eprintln!("PAC_URL={}", pac_url);
@@ -91,14 +119,14 @@ fn get_resolver(settings: &ProxySettings, verbose: bool, trace: bool) -> Resolve
             bind_pac_methods(&globals, trace);
             ctx.eval::<(), _>(pac_script).expect("PAC script error");
         });
-        Box::new(PACResolver { ctx: context })
+        Box::new(PACResolver {
+            ctx: context,
+            by_pass,
+        })
     } else if settings.proxy_enable {
-        let bypass = settings.proxy_override.clone().unwrap_or_default();
-        let bypass_hosts: Vec<&str> = bypass.split(';').collect();
-
         let static_proxy = StaticResolver {
             proxy_server: settings.proxy_server.clone().unwrap_or_default(),
-            by_pass: bypass_hosts.iter().map(|s| s.to_string()).collect(),
+            by_pass,
         };
 
         if verbose {
@@ -140,6 +168,9 @@ fn run_lua(
             }
             lua_globals.set("args", &lua_args).unwrap();
         }
+        lua_globals
+            .set("by_pass_list", resolver.no_proxy())
+            .unwrap();
 
         // Register find_proxy_for_url in Lua
         let find_proxy_fn = lua
@@ -208,25 +239,26 @@ fn parse_key_val(s: &str) -> Result<(String, String), String> {
 
 fn find_resolver(
     pac: Option<String>,
-    static_proxy: Option<(String, Option<String>)>,
+    static_proxy: Option<String>,
+    proxy_override: Option<String>,
     verbose: bool,
     trace: bool,
 ) -> Result<Resolver, Box<dyn Error>> {
-    let settings = match (pac, static_proxy) {
-        (Some(pac), None) => Ok::<_, Box<dyn Error>>(ProxySettings {
+    let settings = match (pac, static_proxy, proxy_override) {
+        (Some(pac), None, proxy_override) => Ok::<_, Box<dyn Error>>(ProxySettings {
             auto_config_url: Some(format!("file://{}", pac)),
             proxy_enable: false,
             proxy_server: None,
-            proxy_override: None,
+            proxy_override,
         }),
-        (None, Some((proxy_server, proxy_override))) => Ok(ProxySettings {
+        (None, Some(proxy_server), proxy_override) => Ok(ProxySettings {
             auto_config_url: None,
             proxy_enable: true,
             proxy_server: Some(proxy_server),
             proxy_override,
         }),
-        (Some(_), Some(_)) => Err("--pac and --static-proxy are mutually exclusive".into()),
-        (None, None) => get_proxy_settings().map_err(Into::into),
+        (Some(_), Some(_), _) => Err("--pac and --static-proxy are mutually exclusive".into()),
+        (None, None, _) => get_proxy_settings().map_err(Into::into),
     }?;
 
     Ok(get_resolver(&settings, verbose, trace))
@@ -235,27 +267,30 @@ fn find_resolver(
 fn main() {
     let args = Args::parse();
 
-    let static_proxy = match (args.static_proxy, args.bypass_proxy) {
-        (Some(static_proxy), bypass_proxy) => Some((static_proxy, bypass_proxy)),
-        (None, Some(_)) => {
-            eprintln!("--bypass_proxy requires --static_proxy option");
-            exit(1)
-        }
-        _ => None,
-    };
+    // validate program arguments
+    let (url, lua) = match (&args.pac, &args.static_proxy, &args.bypass_proxy) {
+        (Some(_), Some(_), _) => Err("--pac and --static-proxy are mutually exclusive"),
+        _ => Ok((None::<String>, None::<String>)),
+    }
+    .and(match (&args.url, &args.lua) {
+        (None, None) => Err("no URL specified, nor lua script to run."),
+        (url, lua) => Ok((url, lua)),
+    })
+    .unwrap_or_else(|error| {
+        eprintln!(" ** ERROR : {}\n", error);
+        exit(2)
+    });
 
-    let (url, lua) = match (&args.url, &args.lua) {
-        (None, None) => {
-            eprintln!("** ERROR : No URL specified, nor lua script to run.");
-            exit(2);
-        }
-        (url, lua) => (url, lua),
-    };
-
-    let resolver = match find_resolver(args.pac, static_proxy, args.verbose, args.trace) {
+    let resolver = match find_resolver(
+        args.pac,
+        args.static_proxy,
+        args.bypass_proxy,
+        args.verbose,
+        args.trace,
+    ) {
         Ok(resolver) => resolver,
         Err(message) => {
-            eprintln!("{}\n", message);
+            eprintln!(" ** ERROR : {}\n", message);
             exit(1)
         }
     };

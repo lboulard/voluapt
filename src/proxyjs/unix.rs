@@ -30,6 +30,6 @@ pub fn get_proxy_settings() -> Result<ProxySettings, ProxySettingsError> {
         auto_config_url: None,
         proxy_enable: false,
         proxy_server: None,
-        proxy_override: None,
+        proxy_override: vec![],
     })
 }

@@ -14,6 +14,278 @@ use proxyjs::*;
 mod fnmatch;
 use fnmatch::fnmatch;
 
+fn is_alnum_or_hyphen(c: char) -> bool {
+    c.is_ascii_alphanumeric() || c == '-' || c == '_'
+}
+
+#[derive(Debug, PartialEq)]
+pub enum ProxyParseError {
+    UnexpectedToken,
+    MissingAddress,
+    InvalidAddress,
+    InvalidPort,
+}
+
+struct ProxyParser<'a> {
+    input: &'a str,
+    pos: usize,
+}
+
+impl<'a> ProxyParser<'a> {
+    fn new(input: &'a str) -> Self {
+        ProxyParser { input, pos: 0 }
+    }
+
+    fn peek(&self) -> Option<char> {
+        self.input[self.pos..].chars().next()
+    }
+
+    fn advance(&mut self, expected: &str) -> bool {
+        if self.input[self.pos..].starts_with(expected) {
+            self.pos += expected.len();
+            true
+        } else {
+            false
+        }
+    }
+
+    fn advance_while<F>(&mut self, mut predicate: F) -> bool
+    where
+        F: FnMut(char) -> bool,
+    {
+        let mut advanced = false;
+        while let Some(c) = self.peek() {
+            if predicate(c) {
+                self.pos += c.len_utf8();
+                advanced = true;
+            } else {
+                break;
+            }
+        }
+        advanced
+    }
+
+    fn advance_case_insensitive(&mut self, expected: &str) -> bool {
+        let remaining = &self.input[self.pos..];
+
+        // Take the same number of characters as the expected string
+        let prefix: String = remaining.chars().take(expected.len()).collect();
+
+        if prefix.len() != expected.len() {
+            return false; // Not enough chars
+        }
+
+        if prefix.eq_ignore_ascii_case(expected) {
+            self.pos += prefix.len();
+            true
+        } else {
+            false
+        }
+    }
+
+    fn skip_whitespace(&mut self) {
+        self.advance_while(|c| c.is_whitespace());
+    }
+
+    fn only_padding_remains(&self) -> bool {
+        self.input[self.pos..]
+            .chars()
+            .all(|c| c.is_whitespace() || c == ';')
+    }
+
+    fn finish_proxy(&self, start: usize) -> Result<String, ProxyParseError> {
+        if self.only_padding_remains() {
+            let addr = self.input[start..self.pos]
+                .trim_end_matches(|c: char| c == ';' || c.is_whitespace());
+            Ok(format!("PROXY {}", addr))
+        } else {
+            Err(ProxyParseError::UnexpectedToken)
+        }
+    }
+
+    fn parse_server_addr(&mut self) -> Result<(), ProxyParseError> {
+        let start = self.pos;
+
+        // Try IP address
+        if self.advance_digits_dot_quad() {
+            return Ok(());
+        }
+
+        // Try hostname + optional port
+        self.pos = start; // reset
+        if self.advance_hostname() {
+            if self.peek() == Some(':') {
+                self.pos += 1;
+                if !self.advance_while(|c| c.is_ascii_digit()) {
+                    return Err(ProxyParseError::InvalidPort);
+                }
+            }
+            return Ok(());
+        }
+
+        Err(ProxyParseError::MissingAddress)
+    }
+
+    fn parse(mut self) -> Result<String, ProxyParseError> {
+        self.skip_whitespace();
+
+        if self.advance_case_insensitive("DIRECT") {
+            self.skip_whitespace();
+            return if self.only_padding_remains() {
+                Ok("DIRECT".to_string())
+            } else {
+                Err(ProxyParseError::UnexpectedToken)
+            };
+        }
+
+        if self.advance_case_insensitive("PROXY") && self.advance(" ") {
+            let start = self.pos;
+
+            self.parse_server_addr()?; // returns early on error
+
+            self.skip_whitespace();
+            return self.finish_proxy(start);
+        }
+
+        Err(ProxyParseError::UnexpectedToken)
+    }
+
+    fn advance_digits_dot_quad(&mut self) -> bool {
+        for i in 0..4 {
+            if !self.advance_while(|c| c.is_ascii_digit()) {
+                return false;
+            }
+            if i < 3 {
+                if !self.advance(".") {
+                    return false;
+                }
+            }
+        }
+
+        // Optional port
+        if self.peek() == Some(':') {
+            self.pos += 1;
+            if !self.advance_while(|c| c.is_ascii_digit()) {
+                return false;
+            }
+        }
+
+        true
+    }
+
+    fn advance_hostname(&mut self) -> bool {
+        if !self.advance_while(is_alnum_or_hyphen) {
+            return false;
+        }
+
+        while self.peek() == Some('.') {
+            self.pos += 1;
+            if !self.advance_while(is_alnum_or_hyphen) {
+                return false;
+            }
+        }
+
+        true
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_direct_simple() {
+        assert_eq!(ProxyParser::new("DIRECT").parse(), Ok("DIRECT".to_string()));
+    }
+
+    #[test]
+    fn test_direct_with_whitespace() {
+        assert_eq!(
+            ProxyParser::new("   DIRECT   ").parse(),
+            Ok("DIRECT".to_string())
+        );
+        assert_eq!(
+            ProxyParser::new("  DIRECT;;").parse(),
+            Ok("DIRECT".to_string())
+        );
+    }
+
+    #[test]
+    fn test_proxy_ip_no_port() {
+        assert_eq!(
+            ProxyParser::new("PROXY 192.168.0.1").parse(),
+            Ok("PROXY 192.168.0.1".to_string())
+        );
+    }
+
+    #[test]
+    fn test_proxy_ip_with_port() {
+        assert_eq!(
+            ProxyParser::new("PROXY 192.168.0.1:8080").parse(),
+            Ok("PROXY 192.168.0.1:8080".to_string())
+        );
+    }
+
+    #[test]
+    fn test_proxy_hostname_no_port() {
+        assert_eq!(
+            ProxyParser::new("PROXY proxy.example.com").parse(),
+            Ok("PROXY proxy.example.com".to_string())
+        );
+    }
+
+    #[test]
+    fn test_proxy_hostname_with_port() {
+        assert_eq!(
+            ProxyParser::new("PROXY proxy.example.com:8080").parse(),
+            Ok("PROXY proxy.example.com:8080".to_string())
+        );
+    }
+
+    #[test]
+    fn test_trailing_junk_ignored() {
+        assert_eq!(
+            ProxyParser::new(" PROXY proxy.example.com:8080 ;;  ").parse(),
+            Ok("PROXY proxy.example.com:8080".to_string())
+        );
+    }
+
+    #[test]
+    fn test_invalid_prefix() {
+        assert_eq!(
+            ProxyParser::new("INVALID proxy.example.com").parse(),
+            Err(ProxyParseError::UnexpectedToken)
+        );
+    }
+
+    #[test]
+    fn test_proxy_hostname_with_invalid_port() {
+        assert_eq!(
+            ProxyParser::new("PROXY proxy.example.com:abc").parse(),
+            Err(ProxyParseError::InvalidPort)
+        );
+    }
+
+    #[test]
+    fn test_proxy_missing_hostname_or_ip() {
+        assert_eq!(
+            ProxyParser::new("PROXY ").parse(),
+            Err(ProxyParseError::MissingAddress)
+        );
+    }
+
+    #[test]
+    fn test_is_alnum_or_hyphen_function() {
+        assert!(is_alnum_or_hyphen('a'));
+        assert!(is_alnum_or_hyphen('Z'));
+        assert!(is_alnum_or_hyphen('9'));
+        assert!(is_alnum_or_hyphen('-'));
+        assert!(is_alnum_or_hyphen('_'));
+        assert!(!is_alnum_or_hyphen('!'));
+        assert!(!is_alnum_or_hyphen(' '));
+    }
+}
+
 trait ProxyResolver {
     fn resolve(&self, url: &str) -> String;
     fn no_proxy(&self) -> Vec<String>;
@@ -93,6 +365,26 @@ impl ProxyResolver for DirectResolver {
     fn no_proxy(&self) -> Vec<String> {
         vec![]
     }
+}
+
+struct SafeResolver {
+    parent: Resolver,
+}
+
+impl ProxyResolver for SafeResolver {
+    fn resolve(&self, _url: &str) -> String {
+        let proxy = self.parent.resolve(_url);
+        ProxyParser::new(&proxy)
+            .parse()
+            .unwrap_or_else(|err| panic!("[{}]: {:?}", proxy, err))
+    }
+    fn no_proxy(&self) -> Vec<String> {
+        self.parent.no_proxy()
+    }
+}
+
+fn make_safe_resolver(resolver: Resolver) -> Resolver {
+    Box::new(SafeResolver { parent: resolver })
 }
 
 fn get_resolver(settings: &ProxySettings, verbose: bool, trace: bool) -> Resolver {
@@ -357,7 +649,7 @@ fn main() {
         args.verbose,
         args.trace,
     ) {
-        Ok(resolver) => resolver,
+        Ok(resolver) => make_safe_resolver(resolver),
         Err(message) => {
             eprintln!(" ** ERROR : {}\n", message);
             exit(1)

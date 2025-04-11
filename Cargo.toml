@@ -1,6 +1,6 @@
 [package]
-name = "system-proxy"
-version = "0.1.0"
+name = "Voluapt"
+version = "1.0.0"
 edition = "2024"
 description = "Resolve HTTP proxy for a URL."
 authors = ["Laurent Boulard <laurent.boulard@gmail.com>"]
@@ -14,4 +14,4 @@ mlua = { version = "0.10", features = ["lua54", "vendored"] }
 clap = { version = "4.5", features = ["derive"] }
 
 [target.'cfg(windows)'.dependencies]
-winreg = "0.50"
+winreg = "0.55"

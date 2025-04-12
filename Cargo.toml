@@ -5,6 +5,10 @@ edition = "2024"
 description = "Resolve HTTP proxy for a URL."
 authors = ["Laurent Boulard <laurent.boulard@gmail.com>"]
 
+[[bin]]
+name = "voluapt"
+path = "src/main.rs"
+
 [dependencies]
 ureq = "2"
 rquickjs = "0.9.0"

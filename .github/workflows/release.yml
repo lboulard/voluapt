@@ -1,0 +1,115 @@
+name: Cross-compile and Release
+
+on:
+  push:
+    branches: [ master ]
+    tags:
+      - '*'
+
+jobs:
+  linux-build:
+    name: Linux Build (${{ matrix.target }})
+    runs-on: ubuntu-latest
+    env:
+      CARGO: cross
+    strategy:
+      matrix:
+        target:
+          - linux-x64
+          - linux-x64-musl
+          - linux-aarch64
+          - linux-aarch64-musl
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: sudo apt-get install -y musl-tools make
+      - name: Install cross
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cross
+      - name: Build target
+        run: make ${{ matrix.target }}
+      - name: Rename and move binary
+        run: |
+          set -ex
+          TARGET_TRIPLE=$(make print-${{ matrix.target }}-triple)
+          BIN_NAME=$(basename $(find target/$TARGET_TRIPLE/release -maxdepth 1 -type f -executable | head -n1))
+          mkdir -p dist
+          cp target/$TARGET_TRIPLE/release/$BIN_NAME dist/${BIN_NAME}-${{ matrix.target }}
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: voluapt-${{ matrix.target }}
+          path: dist/*
+          if-no-files-found: error
+
+  windows-build:
+    name: Windows Build (win-x64)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust MSVC target
+        run: rustup target add x86_64-pc-windows-msvc
+      - name: Build
+        run: cargo build --release --target x86_64-pc-windows-msvc
+      - name: Rename and move binary
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          New-Item -ItemType Directory -Path dist -Force | Out-Null
+          $binFiles = Get-ChildItem -Path 'target/x86_64-pc-windows-msvc/release' -Filter *.exe
+          foreach ($bin in $binFiles) {
+            $name = $bin.BaseName
+            Copy-Item $bin.FullName -Destination "dist/${name}-win-x64.exe"
+          }
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: voluapt-win-x64
+          path: dist/*
+          if-no-files-found: error
+
+  release:
+    name: Create GitHub Release
+    needs: [ linux-build, windows-build ]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - name: Determine tag name
+        id: tag
+        run: |
+          set -ex
+          if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
+            echo "tag_name=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+          else
+            echo "tag_name=dev" >> $GITHUB_OUTPUT
+          fi
+      - name: Extract changelog from file
+        id: changelog
+        run: |
+          awk -f .github/bin/extract-changelog.awk "${{ steps.tag.outputs.tag_name }}" >changelog.txt
+          echo "body<<EOF" >> $GITHUB_OUTPUT
+          cat changelog.txt >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+      - name: Strip binaries and create archives
+        run: bash -ex .github/bin/strip-and-archive.sh "${{ steps.tag.outputs.tag_name }}"
+      - name: Delete old assets in dev release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          bash -ex .github/bin/delete-old-assets.sh "${{ steps.tag.outputs.tag_name }}" "$GH_TOKEN"
+      - name: Create or update GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: ${{ steps.tag.outputs.tag_name }}
+          tag_name: ${{ steps.tag.outputs.tag_name }}
+          files: release-assets/*
+          body: ${{ steps.changelog.outputs.body }}
+          draft: false
+          prerelease: ${{ steps.tag.outputs.tag_name == 'dev' }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

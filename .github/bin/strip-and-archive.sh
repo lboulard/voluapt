@@ -38,7 +38,11 @@ for file in *; do
   # For non-Windows binaries, strip debug symbols.
   if [[ "$file" != *.exe ]]; then
     echo "♻️ Stripping $file"
-    strip "$file" || echo "⚠️ Warning: strip failed on $file"
+    case "$PLATFORM" in
+    *-x64*) strip "$file" || echo "⚠️ Warning: strip failed on $file" ;;
+    *-aarch64*) aarch64-linux-gnu-strip "$file" || echo "⚠️ Warning: strip failed on $file" ;;
+    *) echo "⚠️ Warning: strip not possible on $file for $PLATFORM" ;;
+    esac
   fi
 
   if [[ "$IS_DEV" == true ]]; then

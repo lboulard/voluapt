@@ -295,7 +295,7 @@ type Resolver = Box<dyn ProxyResolver>;
 
 struct StaticResolver {
     proxy_server: String,
-    by_pass: Vec<String>,
+    bypass: Vec<String>,
 }
 
 impl ProxyResolver for StaticResolver {
@@ -305,7 +305,7 @@ impl ProxyResolver for StaticResolver {
         let parsed = Url::parse(url).unwrap();
         let host = parsed.host_str().unwrap_or("");
 
-        let is_bypassed = self.by_pass.iter().any(|pattern| fnmatch(pattern, host));
+        let is_bypassed = self.bypass.iter().any(|pattern| fnmatch(pattern, host));
 
         if is_bypassed {
             proxy_result = "DIRECT".to_string();
@@ -316,13 +316,13 @@ impl ProxyResolver for StaticResolver {
     }
 
     fn no_proxy(&self) -> Vec<String> {
-        self.by_pass.clone()
+        self.bypass.clone()
     }
 }
 
 struct PACResolver {
     ctx: Context,
-    by_pass: Vec<String>,
+    bypass: Vec<String>,
 }
 
 impl ProxyResolver for PACResolver {
@@ -330,7 +330,7 @@ impl ProxyResolver for PACResolver {
         let parsed = Url::parse(url).unwrap();
         let host = parsed.host_str().unwrap_or("");
 
-        let is_bypassed = self.by_pass.iter().any(|pattern| fnmatch(pattern, host));
+        let is_bypassed = self.bypass.iter().any(|pattern| fnmatch(pattern, host));
 
         if is_bypassed {
             "DIRECT".to_string()
@@ -351,7 +351,7 @@ impl ProxyResolver for PACResolver {
     }
 
     fn no_proxy(&self) -> Vec<String> {
-        self.by_pass.clone()
+        self.bypass.clone()
     }
 }
 
@@ -405,17 +405,17 @@ fn get_resolver(settings: &ProxySettings, verbose: bool, trace: bool) -> Resolve
         });
         Box::new(PACResolver {
             ctx: context,
-            by_pass: settings.proxy_override.clone(),
+            bypass: settings.proxy_override.clone(),
         })
     } else if settings.proxy_enable {
         let static_proxy = StaticResolver {
             proxy_server: settings.proxy_server.clone().unwrap_or_default(),
-            by_pass: settings.proxy_override.clone(),
+            bypass: settings.proxy_override.clone(),
         };
 
         if verbose {
             eprintln!("HTTP_PROXY={}", static_proxy.proxy_server);
-            eprintln!("NO_PROXY={}", static_proxy.by_pass.join(","));
+            eprintln!("NO_PROXY={}", static_proxy.bypass.join(","));
         }
         Box::new(static_proxy)
     } else {
@@ -443,7 +443,7 @@ fn create_lua_context(
         None => {}
     };
 
-    context.set("by_pass_list", resolver.no_proxy()).unwrap();
+    context.set("bypass_list", resolver.no_proxy()).unwrap();
 
     let context_defines = lua.create_table().unwrap();
     for arg in defines {
@@ -519,28 +519,28 @@ PAC file can be a local file (with and without "file://" prefix),
 or a HTTP/HTTPS url like "https://lan.corp/proxy.pac".
 
 Option --bypass is used in PAC proxy resolver and static HTTP proxy.
-In case a host match by-pass list, PAC script is not called.
+In case a host match bypass list, PAC script is not called.
 
-When lua script is given, URL argument is optional.
+When one lua script is given, URL argument is optional.
 If URL argument is present, proxy for URL is resolved.
-Then proxy and URL are given in proxy context to lua script.
+Then proxy and URL are given in a context to lua script.
 
-Script in lua receive a "context" in global with following fields:
+Scripts in lua receive a "context" metatable in global with following content:
 
-  - context.find_proxy_for_url(url): function to resolve proxy for an URL
-  - context.url: non nil when URL is given to program argument
-  - context.proxy: result of proxy resolution on context.url
-  - context.by_pass_list: table from by pass arguments from command line (or
-                          Windows Internet Setting when proxy is activated)
-  - context.defines: key/value as defined from command line -D option
-  - context.dns_resolve(hostname): function to resolve DNS address to IPv4
+ - context.find_proxy_for_url(url): function to resolve proxy for an URL
+ - context.url: non nil when URL is given to program argument
+ - context.proxy: result of proxy resolution on context.url
+ - context.bypass_list: table from bypass arguments from command line (or
+                         Windows Internet Setting when proxy is activated)
+ - context.defines: key/value as defined from command line -D option
+ - context.dns_resolve(hostname): function to resolve DNS address to IPv4
 
-Proxy response for find_proxy_for_url() or context.proxy, match those
-patterns:
+Proxy response for find_proxy_for_url() at runtime or context.proxy, match
+those patterns:
 
-  - DIRECT
-  - PROXY xxx.xxx.xxx.xxx:port (when IPv4 address)
-  - PROXY example.proxy.corp:port (when using DNS to find proxy address)
+ - DIRECT
+ - PROXY xxx.xxx.xxx.xxx:port
+ - PROXY example.proxy.corp:port
 "#
         )
     };

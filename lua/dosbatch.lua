@@ -1,6 +1,6 @@
 local context = context or {}
 
-local proxy, by_pass
+local proxy, bypass
 
 if context.url then
 	proxy = context.proxy
@@ -11,7 +11,7 @@ end
 
 bypass = coroutine.wrap(function()
 	local no_proxy
-	for _, no_proxy in pairs(context.by_pass_list) do
+	for _, no_proxy in pairs(context.bypass_list) do
 		if no_proxy then
 			no_proxy = no_proxy:gsub("^*.", "")
 			if no_proxy ~= "" then

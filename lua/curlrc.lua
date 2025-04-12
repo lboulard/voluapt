@@ -12,7 +12,7 @@ bypass = coroutine.wrap(function()
 	coroutine.yield("172.16.0.0/12")
 	coroutine.yield("192.168.0.0/16")
 	local no_proxy
-	for _, no_proxy in pairs(context.by_pass_list) do
+	for _, no_proxy in pairs(context.bypass_list) do
 		if no_proxy then
 			no_proxy = no_proxy:gsub("^*.", "")
 			if no_proxy ~= "" then

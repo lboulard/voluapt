@@ -64,13 +64,13 @@ Script in lua receive a `context` metatable in global with following fields:
 - `context.find_proxy_for_url(url)`: function to resolve proxy for a URL
 - `context.url`: non nil when URL is given to program argument
 - `context.proxy`: result of proxy resolution on `context.url`
-- `context.by_pass_list`:
+- `context.bypass_list`:
       Array from `--bypass` arguments from command line (or from Windows
       Internet Setting when proxy is activated)
 - `context.defines`: key/value as defined from command line -D option
 - `context.dns_resolve(hostname)`: function to resolve DNS address to IPv4
 
-Note that `by_pass_list` on Windows is a concatenation of bypass list in
+Note that `bypass_list` on Windows is a concatenation of bypass list in
 Internet Settings and bypass given on command line with `--bypass`.
 
 Using `-Dkey=value` command line argument, you can give external argument to

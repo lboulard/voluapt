@@ -1,6 +1,9 @@
 # Voluapt ChangeLog
 
 ## [Unreleased]
+
+
+## 1.1.0 – 2025-04-13
 ### ✨ Features
 - Add `context.proxy_to_url`, avoid repeating same conversion code in scripts
 - Upgrade lua examples to use `proxy_to_url()`

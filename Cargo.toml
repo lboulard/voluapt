@@ -1,6 +1,6 @@
 [package]
 name = "Voluapt"
-version = "1.0.0"
+version = "1.1.0"
 edition = "2024"
 description = "Resolve HTTP proxy for a URL."
 authors = ["Laurent Boulard <laurent.boulard@gmail.com>"]

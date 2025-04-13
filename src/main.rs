@@ -427,6 +427,99 @@ fn get_resolver(settings: &ProxySettings, verbose: bool, trace: bool) -> Resolve
     }
 }
 
+fn proxy_to_url(pac_response: &str) -> Vec<String> {
+    pac_response
+        .split(';')
+        .map(|entry| {
+            let trimmed = entry.trim();
+
+            // Split at the first space to isolate type and host:port
+            if let Some((kind, rest)) = trimmed.split_once(' ') {
+                match kind.to_ascii_uppercase().as_str() {
+                    "PROXY" => format!("http://{}/", rest.trim()),
+                    "SOCKS" => format!("socks4://{}/", rest.trim()),
+                    "SOCKS5" => format!("socks5://{}/", rest.trim()),
+                    _ => String::new(), // Unknown type
+                }
+            } else if trimmed.eq_ignore_ascii_case("DIRECT") {
+                String::new()
+            } else {
+                String::new()
+            }
+        })
+        .collect()
+}
+
+#[cfg(test)]
+mod proxy_to_url_tests {
+    use super::*;
+
+    #[test]
+    fn test_direct() {
+        let input = "DIRECT";
+        let expected = vec!["".to_string()];
+        assert_eq!(proxy_to_url(input), expected);
+    }
+
+    #[test]
+    fn test_http_proxy() {
+        let input = "PROXY proxy.example.com:8080";
+        let expected = vec!["http://proxy.example.com:8080/".to_string()];
+        assert_eq!(proxy_to_url(input), expected);
+    }
+
+    #[test]
+    fn test_socks_proxy() {
+        let input = "SOCKS socks.example.com:1080";
+        let expected = vec!["socks4://socks.example.com:1080/".to_string()];
+        assert_eq!(proxy_to_url(input), expected);
+    }
+
+    #[test]
+    fn test_socks5_proxy() {
+        let input = "SOCKS5 socks5.example.com:1080";
+        let expected = vec!["socks5://socks5.example.com:1080/".to_string()];
+        assert_eq!(proxy_to_url(input), expected);
+    }
+
+    #[test]
+    fn test_fallback_list() {
+        let input = "PROXY a:1; SOCKS b:2; SOCKS5 c:3; DIRECT";
+        let expected = vec![
+            "http://a:1/".to_string(),
+            "socks4://b:2/".to_string(),
+            "socks5://c:3/".to_string(),
+            "".to_string(),
+        ];
+        assert_eq!(proxy_to_url(input), expected);
+    }
+
+    #[test]
+    fn test_whitespace_and_case() {
+        let input = "  proxy proxy.com:3128 ;   socks5 myproxy:1080 ; Direct ";
+        let expected = vec![
+            "http://proxy.com:3128/".to_string(),
+            "socks5://myproxy:1080/".to_string(),
+            "".to_string(),
+        ];
+        assert_eq!(proxy_to_url(input), expected);
+    }
+
+    #[test]
+    fn test_unrecognized_entry() {
+        let input = "UNKNOWN format; PROXY valid:1";
+        let expected = vec!["".to_string(), "http://valid:1/".to_string()];
+        assert_eq!(proxy_to_url(input), expected);
+    }
+
+    #[test]
+    fn test_empty_string() {
+        let input = "";
+        let expected = vec!["".to_string()];
+        assert_eq!(proxy_to_url(input), expected);
+    }
+}
+
 fn create_lua_context(
     lua: &Lua,
     url_proxy: Option<(String, String)>,
@@ -462,6 +555,17 @@ fn create_lua_context(
         .create_function(|_, host: String| Ok(resolve_dns(&host).unwrap_or_default()))
         .unwrap();
     context.set("dns_resolve", dns_resolve_fn).unwrap();
+
+    // Register proxy_to_url in Lua
+    let proxy_to_url_fn = lua
+        .create_function(move |_, proxy: String| {
+            Ok(match proxy_to_url(&proxy).first() {
+                Some(url) => url.to_string(),
+                None => String::default(),
+            })
+        })
+        .unwrap();
+    context.set("proxy_to_url", proxy_to_url_fn).unwrap();
 
     context
 }
@@ -534,6 +638,8 @@ Scripts in lua receive a "context" metatable in global with following content:
                          Windows Internet Setting when proxy is activated)
  - context.defines: key/value as defined from command line -D option
  - context.dns_resolve(hostname): function to resolve DNS address to IPv4
+ - context.proxy_to_url(proxy): helper to obtain empty string or a URL for
+                                matching proxy type ('PROXY' -> 'http://')
 
 Proxy response for find_proxy_for_url() at runtime or context.proxy, match
 those patterns:

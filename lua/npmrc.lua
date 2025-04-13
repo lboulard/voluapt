@@ -15,11 +15,12 @@ else
 	f = io.output()
 end
 
-if proxy ~= "DIRECT" then
-	local proxy_host = proxy:gsub("PROXY ", "")
-	f:write("proxy=" .. proxy .. "\n")
-	f:write("https-proxy=" .. proxy .. "\n")
-else
+local proxy_url = context.proxy_to_url(proxy)
+
+if proxy_url == "" then
 	f:write("# no proxy required")
+else
+	f:write("proxy=" .. proxy_url .. "\n")
+	f:write("https-proxy=" .. proxy_url .. "\n")
 end
 f:close()

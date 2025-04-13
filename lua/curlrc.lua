@@ -30,9 +30,12 @@ else
 	f = io.output()
 end
 
-if proxy ~= "DIRECT" then
-	local proxy_host = proxy:gsub("PROXY ", "")
-	f:write("proxy = " .. proxy .. "\n")
+local proxy_url = context.proxy_to_url(proxy)
+
+if proxy_url == "" then
+	f:write("# no proxy required")
+else
+	f:write("proxy = " .. proxy_url .. "\n")
 
 	local noproxy = {}
 	for item in bypass do
@@ -41,7 +44,5 @@ if proxy ~= "DIRECT" then
 	if #noproxy > 0 then
 		f:write("noproxy = " .. table.concat(noproxy, ",") .. "\n")
 	end
-else
-	f:write("# no proxy required")
 end
 f:close()

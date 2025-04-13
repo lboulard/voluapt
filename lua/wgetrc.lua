@@ -1,11 +1,11 @@
 local context = context or {}
 
-local http_proxy
+local proxy
 if context.url then
-	http_proxy = context.proxy
+	proxy = context.proxy
 else
 	-- when no URL argument was given to voluapt invocation
-	http_proxy = context.find_proxy_for_url("https://example.com")
+	proxy = context.find_proxy_for_url("https://example.com")
 end
 
 defines = context.defines or {}
@@ -16,11 +16,12 @@ else
 	f = io.output()
 end
 
-if http_proxy ~= "DIRECT" then
-	http_proxy = http_proxy:gsub("PROXY ", "")
-	f:write("use_proxy = on\n")
-	f:write("http_proxy = " .. http_proxy .. "\n")
-else
+local proxy_url = context.proxy_to_url(proxy)
+
+if proxy_url == "" then
 	f:write("# no proxy required")
+else
+	f:write("use_proxy = on\n")
+	f:write("http_proxy = " .. proxy_url .. "\n")
 end
 f:close()

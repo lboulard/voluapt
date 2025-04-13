@@ -21,12 +21,7 @@ bypass = coroutine.wrap(function()
 	end
 end)
 
-local proxy_host
-if proxy == "DIRECT" then
-	proxy_host = nil
-else
-	proxy_host = proxy:gsub("PROXY ", "")
-end
+local proxy_url = context.proxy_to_url(proxy)
 
 local template = [[
 $env:HTTP_PROXY="@@proxy@@"
@@ -35,7 +30,7 @@ $env:FTP_PROXY="@@proxy@@"
 ]]
 
 local no_proxy_header = (
-	proxy_host
+	proxy_url
 		and [[
 $env:NO_PROXY="localhost,127.0.0.1"
 $env:NO_PROXY="$env:NO_PROXY,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16"
@@ -57,7 +52,7 @@ else
 	f = io.output()
 end
 
-local s = template:gsub("@@proxy@@", proxy_host or "")
+local s = template:gsub("@@proxy@@", proxy_url)
 f:write(s)
 f:write(no_proxy_header)
 
@@ -66,7 +61,7 @@ for no_proxy in bypass do
 	f:write(s)
 end
 
-f:write(proxy_host and [[
+f:write(proxy_url and [[
 Write-Output "Using $env:HTTP_PROXY for HTTP"
 Write-Output "Using $env:HTTPS_PROXY for HTTPS"
 ]] or [[

@@ -6,16 +6,11 @@
 local context = context or {}
 
 local function git_http_proxy(writer, git_pattern, proxy)
-	local is_proxy = string.match(proxy, "^PROXY%s+(.+)%s*$")
-	if proxy == "DIRECT" then
-		proxy = ""
-	elseif is_proxy then
-		proxy = " http://" .. is_proxy
-	else
-		proxy = " # ignoring unknown proxy string: " .. proxy
+	local proxy_url = context.proxy_to_url(proxy)
+	if proxy_url ~= "" then
+		proxy_url = " " .. proxy_url
 	end
-
-	local http_proxy = string.format('[http "%s"]\n\tproxy =%s\n', git_pattern, proxy)
+	local http_proxy = string.format('[http "%s"]\n\tproxy =%s\n', git_pattern, proxy_url)
 	writer:write(http_proxy)
 end
 

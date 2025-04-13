@@ -69,6 +69,9 @@ Script in lua receive a `context` metatable in global with following fields:
       Internet Setting when proxy is activated)
 - `context.defines`: key/value as defined from command line -D option
 - `context.dns_resolve(hostname)`: function to resolve DNS address to IPv4
+- `context.proxy_to_url(proxy)`:
+      Helper to obtain empty string on 'DIRECT' proxy, or a URL for matching
+      proxy type ('PROXY' -> 'http://.../', 'SOCK5' -> 'socks5://.../', …)
 
 Note that `bypass_list` on Windows is a concatenation of bypass list in
 Internet Settings and bypass given on command line with `--bypass`.
